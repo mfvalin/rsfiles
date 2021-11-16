@@ -97,7 +97,7 @@ typedef struct{           // tail part of end_of_segment record (high address in
   uint32_t sign ;         // 0xCAFEFADE hex signature
   uint32_t meta_dim ;     // directory entry metadata size (uint32_t units)
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes)
-  uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of sparse segment size (bytes) (same as seg if not sparse file)
+  uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of sparse segment size (bytes) (0 if not sparse file)
   uint32_t dir[2] ;       // upper[0], lower[1] 32 bits of directory record offset in segment (bytes)
   end_of_record tail ;    // rt=4
 } end_of_segment_hi ;
@@ -165,7 +165,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   RSF_Match_fn *matchfn ;        // pointer to metadata matching function
   dir_page **pagetable ;         // directory page table (pointers to directory pages for this file)
   uint64_t seg_base ;            // base address in file of the current segment (0 if only one segment)
-  int64_t  seg_max ;             // maximum address allowable in segment (-1 means no limit) (-segl if sparse file)
+  uint64_t seg_max ;             // maximum address allowable in segment (0 means no limit) (ssegl if sparse file)
   off_t    size ;                // file size
   off_t    next_write ;          // file offset from beginning of file for next write operation ( -1 if not defined)
   off_t    cur_pos ;             // current file position from beginning of file ( -1 if not defined)
@@ -173,7 +173,9 @@ struct RSF_File{                 // internal (in memory) structure for access to
   uint32_t dir_slots ;           // max number of entries in directory (nb of directory pages * DIR_PAGE_SIZE)
   uint32_t dir_used ;            // number of directory entries in use (all pages belonging to this file/segment)
   int32_t  slot ;                // slot number of file (-1 if invalid)
-  int16_t  last_op ;             // last operation (1 = read) (2 = write) (0 = unknown/invalid)
+  uint32_t nwritten ;            // number of records written (useful when closing after write)
+  uint16_t  isnew ;              // new segment indicator
+  uint16_t  last_op ;            // last operation (1 = read) (2 = write) (0 = unknown/invalid)
   uint16_t mode ;                // file mode (RO/RW/AP/...)
   int16_t  dirpages ;            // number of available directory pages (-1 if none )
   int16_t  curpage ;             // current page in use (may be -1 if not defined)
@@ -188,7 +190,7 @@ static inline void RSF_File_init(RSF_File f){
   f.matchfn    = RSF_Default_match ;
   f.pagetable  = NULL ;
   f.seg_base   = 0 ;
-  f.seg_max    = -1 ;
+  f.seg_max    = 0 ;
   f.size       = 0 ;
   f.next_write = -1 ;
   f.cur_pos    = -1 ;
@@ -196,6 +198,8 @@ static inline void RSF_File_init(RSF_File f){
   f.dir_slots  = 0 ;
   f.dir_used   = 0 ;
   f.slot       = -1 ;
+  f.nwritten   = 0 ;
+  f.isnew      = 0 ;
   f.last_op    = 0 ;
   f.mode       = 0 ;
   f.dirpages   = -1 ;
