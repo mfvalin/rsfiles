@@ -1,4 +1,5 @@
 #include <rsf_int.h>
+#if defined(TEST1)
 #define NDATA 8
 #define NREC 10
 #define META_SIZE 6
@@ -41,3 +42,47 @@ int main(int argc, char **argv){
 
   RSF_Dump("demo.rsf") ;
 }
+#endif
+#if defined(TEST2)
+#include <mpi.h>
+#include <errno.h>
+
+static int32_t Lock(int fd, int lock){
+  struct flock file_lock ;
+  int status ;
+
+  file_lock.l_type = (lock == 1) ? F_WRLCK : F_UNLCK ;
+  file_lock.l_whence = SEEK_SET ;
+  file_lock.l_start = 0 ;
+  file_lock.l_len = sizeof(start_of_segment) -1 ;
+  status = fcntl(fd, F_SETLKW, &file_lock) ;
+// printf("fd = %d, start = %ld, end = %ld, lock = %d, status = %d\n",fd, file_lock.l_start, file_lock.l_len, lock, status) ;
+// if(status != 0) perror("LOCK ");
+  return status ;
+}
+int main(int argc, char **argv){
+  int fd ;
+  int rank ;
+
+  MPI_Init(&argc, &argv);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank) ;
+  fd = open("demo.lock", O_RDWR) ;
+  if(rank == 0) {
+    Lock(fd, 1) ;
+    printf("rank = %d, fd = %d locked\n",rank,fd) ;
+    sleep(5) ;
+    Lock(fd, 0) ;
+    printf("rank = %d, fd = %d unlocked\n",rank,fd) ;
+  }
+  if(rank > 0) {
+    sleep(1) ;
+    Lock(fd, 1) ;
+    sleep(1) ;
+    printf("rank = %d, fd = %d locked\n",rank,fd) ;
+    sleep(3) ;
+    Lock(fd, 0) ;
+    printf("rank = %d, fd = %d unlocked\n",rank,fd) ;
+  }
+  MPI_Finalize() ;
+}
+#endif

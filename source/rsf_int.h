@@ -64,12 +64,44 @@ typedef struct {                   // record header
 
 #define SOR {RT_DATA, 0, 0, 0}
 
+// record length from start_of_record (0 if invalid)
+// rt : expected record type
+static inline uint64_t RSF_Rl_sor(start_of_record sor, int rt){
+  uint64_t rl ;
+  if(sor.zr != 0 ) return 0 ;                    // invalid sor
+  if(sor.rt != rt && sor.rt != 0 ) return 0 ;    // invalid sor
+  rl = sor.rlx ; rl <<= 32 ; rl += sor.rl ;      // record length
+  return rl ;
+}
+
 typedef struct {                   // record trailer
   uint32_t rl ;                    // lower 32 bits of record length
   uint32_t rt:8, rlx:16, zr:8 ;    // zero, upper 16 bits of record length, record type
 } end_of_record ;
 
 #define EOR {0, RT_DATA, 0, 0}
+
+// record length from end_of_record (0 if invalid)
+// rt : expected record type
+static inline uint64_t RSF_Rl_eor(end_of_record eor, int rt){
+  uint64_t rl ;
+  if(eor.zr != 0) return 0 ;                     // invalid eor
+  if(eor.rt != rt && eor.rt != 0 ) return 0 ;    // invalid eor
+  rl = eor.rlx ; rl <<= 32 ; rl += eor.rl ;      // record length
+  return rl ;
+}
+
+// convert a pair of unsigned 32 bit elements into an unsigned 64 bit element
+static inline uint64_t RSF_32_to_64(uint32_t u32[2]){
+  uint64_t u64;
+  u64 = u32[0] ; u64 <<=32 ; u64 += u32[1] ;
+  return u64 ;
+}
+
+static inline void RSF_64_to_32(uint32_t u32[2], uint64_t u64){
+  u32[0] = (u64 >> 32) ;
+  u32[1] = (u64 & 0xFFFFFFFFu) ;
+}
 
 typedef struct{           // start of segment record, matched by a corresponding end of segment record
   start_of_record head ;  // rt=3
@@ -182,42 +214,42 @@ struct RSF_File{                 // internal (in memory) structure for access to
   int16_t  lastpage ;            // last directory page in use (-1 if not defined)
 } ;
 
-static inline void RSF_File_init(RSF_File f){
-  f.version    = RSF_VERSION ;
-  f.fd         = -1 ;
-  f.next       = NULL ;
-  f.name       = NULL ;
-  f.matchfn    = RSF_Default_match ;
-  f.pagetable  = NULL ;
-  f.seg_base   = 0 ;
-  f.seg_max    = 0 ;
-  f.size       = 0 ;
-  f.next_write = -1 ;
-  f.cur_pos    = -1 ;
-  f.meta_dim   = 0 ;
-  f.dir_slots  = 0 ;
-  f.dir_used   = 0 ;
-  f.slot       = -1 ;
-  f.nwritten   = 0 ;
-  f.isnew      = 0 ;
-  f.last_op    = 0 ;
-  f.mode       = 0 ;
-  f.dirpages   = -1 ;
-  f.curpage    = -1 ;
-  f.lastpage   = -1 ;
+static inline void RSF_File_init(RSF_File *fp){
+  fp->version    = RSF_VERSION ;
+  fp->fd         = -1 ;
+  fp->next       = NULL ;
+  fp->name       = NULL ;
+  fp->matchfn    = RSF_Default_match ;
+  fp->pagetable  = NULL ;
+  fp->seg_base   =  0 ;
+  fp->seg_max    =  0 ;
+  fp->size       =  0 ;
+  fp->next_write = -1 ;
+  fp->cur_pos    = -1 ;
+  fp->meta_dim   =  0 ;
+  fp->dir_slots  =  0 ;
+  fp->dir_used   =  0 ;
+  fp->slot       = -1 ;
+  fp->nwritten   =  0 ;
+  fp->isnew      =  0 ;
+  fp->last_op    =  0 ;
+  fp->mode       =  0 ;
+  fp->dirpages   = -1 ;
+  fp->curpage    = -1 ;
+  fp->lastpage   = -1 ;
 }
 
-static inline size_t RSF_Disk_dir_entry_size(RSF_File f){      // size of a directory entry
-  return ( sizeof(uint32_t)*f.meta_dim + sizeof(disk_dir_entry) ) ;
+static inline size_t RSF_Disk_dir_entry_size(RSF_File *fp){      // size of a directory entry
+  return ( sizeof(uint32_t)*fp->meta_dim + sizeof(disk_dir_entry) ) ;
 }
 
-static inline size_t RSF_Disk_dir_size(RSF_File f){      // size of the record containing the disk directory
+static inline size_t RSF_Disk_dir_size(RSF_File *fp){      // size of the record containing the disk directory
   return ( sizeof(disk_directory) +                                                 // base size, includes SOR
-           ( sizeof(uint32_t)*f.meta_dim + sizeof(disk_dir_entry) ) * f.dir_used +  // disk entry size * nb of records
+           ( sizeof(uint32_t)*fp->meta_dim + sizeof(disk_dir_entry) ) * fp->dir_used +  // disk entry size * nb of records
            sizeof(end_of_record) ) ;                                                // end of record
 }
 
-static inline size_t RSF_Dir_page_size(RSF_File f){      // size of a directory page in memory
+static inline size_t RSF_Dir_page_size(RSF_File *fp){      // size of a directory page in memory
   return ( sizeof(dir_page) +                                    // base size, including warl table
-           f.meta_dim * sizeof(uint32_t) * DIR_PAGE_SIZE ) ;   // metadata for the page
+           fp->meta_dim * sizeof(uint32_t) * DIR_PAGE_SIZE ) ;   // metadata for the page
 }
