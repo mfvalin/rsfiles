@@ -54,6 +54,14 @@ int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n
 
 RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *appl, int64_t *segsize);
 
+int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mask) ;
+
+void *RSF_Get_record(RSF_handle h, int64_t key, void *record, uint64_t size, void **meta, int32_t *metasize, void **data, uint64_t *datasize) ;
+void *RSF_Record_meta(RSF_handle h, void *record, int32_t *metasize) ;
+void *RSF_Record_data(RSF_handle h, void *record, int32_t *datasize) ;
+
+void *RSF_Get_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize) ;
+
 int64_t RSF_Put(RSF_handle h, uint32_t *meta, void *data, size_t data_size) ;
 
 int32_t RSF_Close_file(RSF_handle h) ;

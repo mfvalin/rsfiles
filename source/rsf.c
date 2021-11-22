@@ -282,7 +282,7 @@ static inline void RSF_Get_dir_entry(RSF_File *fp, int64_t key, uint64_t *wa, ui
 static int32_t RSF_Read_directory(RSF_File *fp){
   int32_t status = -1 ;
   int32_t slot ;
-  uint64_t size_seg, dir_seg, dir_size ;
+  uint64_t size_seg, dir_seg, dir_size, dir_size2 ;
   uint64_t wa, rl ;
   start_of_segment sos ;
   start_of_record  sor ;
@@ -308,21 +308,20 @@ static int32_t RSF_Read_directory(RSF_File *fp){
     if( RSF_Rl_sor(sos.head, RT_SOS) == 0) goto ERROR ;     // invalid sos record
     size_seg = RSF_32_to_64(sos.seg) ;                      // segment size
     dir_seg  = RSF_32_to_64(sos.dir) ;                      // offset of directory in segment
-
-    lseek(fp->fd, offset = off_seg + dir_seg, SEEK_SET) ;   // read segment directory
-    nc = read(fp->fd, &sor, sizeof(start_of_record)) ;      // get directory record size
-    dir_size = RSF_Rl_sor(sor, RT_DIR) ;
-    if(dir_size == 0) goto ERROR ;                          // invalid dir record
+    dir_size = RSF_32_to_64(sos.dirs) ;                     // directory size from start of segment
+    if(dir_size == 0) goto ERROR ;                          // something is very wrong
 
     ddir = (disk_directory *) malloc(dir_size) ;            // allocate directory
     if(ddir == NULL) return status ;                        // malloc failed
-    read(fp->fd, 
-         &(ddir->entries_nused), 
-         dir_size - sizeof(start_of_record)) ;              // read directory, skipping sor
+
+    lseek(fp->fd, offset = off_seg + dir_seg, SEEK_SET) ;   // seek to segment directory
+    read(fp->fd, ddir, dir_size) ;                          // read segment directory
+    dir_size2 = ddir->sor.rlx ; dir_size2 <<= 32 ; dir_size2 += ddir->sor.rl ;     // directory size from record
+    if(dir_size2 != dir_size) goto ERROR ;                  // inconsistent sizes
 
     meta_dim       = ddir->meta_dim ;                       // metadata size in 32 bit units
     fp->meta_dim   = meta_dim ;
-    dir_entry_size = sizeof(uint32_t)*meta_dim + sizeof(disk_dir_entry) ;  // size of directory entry
+    dir_entry_size = sizeof(uint32_t)*meta_dim + sizeof(disk_dir_entry) ;  // size of a file directory entry
     e = (char *) &(ddir->entry[0]) ;                        // pointer to first directory entry
     for(i = 0 ; i < ddir->entries_nused ; i++){                    // loop over entries in disk directory
       entry = (disk_dir_entry *) e ;                        // disk directory entry (wa, rl, meta)
@@ -551,7 +550,7 @@ int64_t RSF_Put(RSF_handle h, uint32_t *meta, void *data, size_t data_size){
 
   fp->next_write += record_size ;         // update fp->next_write and fp->cur_pos
   fp->cur_pos = fp->next_write ;
-  fp->last_op = OP_WRITE ;                // set fp->last_op to write
+  fp->last_op = OP_WRITE ;                // last operation is write
   fp->nwritten += 1 ;                     // update unmber of writes
   // return slot/index for record (0 in case of error)
   return slot ;
@@ -566,18 +565,83 @@ int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mas
   return RSF_Scan_directory(fp, key0, criteria, mask, &wa, &rl) ;  // wa and rl not sentback to caller
 }
 
-void *RSF_Get_data(RSF_handle h, int64_t key){
+// key from RSF_Lookup
+// returns a  pointer to record blob (NULL in case or error)
+// address and size of data and metadata returned if appropriate pointers are not NULL
+// if record is NULL, a record buffer of appropriate dimension will be allocated, and size will be ignored
+// it is up to the caller to free that space
+// if record is not NULL, size must be large enough to accomodate record
+// in case of error, the function returns NULL, datasize, metasize, data, and meta are IGNORED
+void *RSF_Get_record(RSF_handle h, int64_t key, void *record, uint64_t size, void **meta, int32_t *metasize, void **data, uint64_t *datasize){
+  RSF_File *fp = (RSF_File *) h.p ;
+  int32_t indx, page ;
+  uint64_t recsize, wa ;
+  off_t offset ;
+  int64_t payload ;
+  start_of_record *sor ;
+
+  if( ! RSF_Valid_file(fp) ) return NULL ;   // something not O.K. with fp
+
+  indx = key & 0x7FFFFFFF ;               // get record numer from key
+  indx-- ;                                // set indx to origin 0 ;
+  page  = indx >> DIR_PAGE_SHFT ;         // directory page number
+  indx &= DIR_PAGE_MASK ;                 // offset in directory page
+
+  recsize = (fp->pagetable[page])->warl[indx].rl ;  // record size
+  wa = (fp->pagetable[page])->warl[indx].wa ;       // record position in file
+  if(record == NULL) {                              // allocate record buffer if none supplied
+    record = malloc(recsize) ;
+    size   = recsize ;                              // size is O.K. by definition
+  }
+  if(size < recsize) return NULL ;                  // supplied buffer too small
+
+  if(record){                                       // allocate successful
+    offset = lseek(fp->fd, offset = wa, SEEK_SET) ; // start of record
+    read(fp->fd, record, recsize) ;                 // read record
+    fp->cur_pos = offset + recsize ;                // current position is after record
+    fp->last_op = OP_READ ;                         // last operation is read
+
+    if(metasize) *metasize = fp->meta_dim ;                 // size of metadata
+    if(meta) *meta = record + sizeof(start_of_record) ;     // address of metadata
+
+    sor = (start_of_record *) record ;
+    payload = sor->rlx ; payload <<= 32 ; payload += sor->rl ;
+    payload = payload - sizeof(start_of_record) - fp->meta_dim * sizeof(uint32_t) - sizeof(end_of_record) ;
+    if(datasize) *datasize = payload ;                      // size of data payload
+    if(data) *data = record + sizeof(start_of_record) + fp->meta_dim * sizeof(uint32_t) ;  // address of data payload
+  }
+  return record ;
+}
+
+void *RSF_Record_meta(RSF_handle h, void *record, int32_t *metasize){
   RSF_File *fp = (RSF_File *) h.p ;
 
-  if( ! RSF_Valid_file(fp) ) return 0 ;   // something not O.K. with fp
-  // key from RSF_Lookup
-  // return pointer to data blob (NULL in case or error)
-  return NULL ;
+  *metasize = 0 ;
+  if( ! RSF_Valid_file(fp) ) return NULL ;      // something not O.K. with fp
+
+  *metasize = fp->meta_dim ;
+  return record + sizeof(start_of_record) ;     // position of metadata in record
+}
+
+void *RSF_Record_data(RSF_handle h, void *record, int32_t *datasize){
+  RSF_File *fp = (RSF_File *) h.p ;
+  int64_t payload ;
+  start_of_record *sor = (start_of_record *) record ;
+
+  *datasize = 0 ;
+  if( ! RSF_Valid_file(fp) ) return NULL ;      // something not O.K. with fp
+
+  payload = sor->rlx ; payload <<= 32 ; payload += sor->rl ;
+  // payload size = record size - sor size - metadata size - eor size
+  payload = payload - sizeof(start_of_record) - fp->meta_dim * sizeof(uint32_t) - sizeof(end_of_record) ;
+  *datasize = payload ;
+  // position of data in record, after sor and metadata
+  return record + sizeof(start_of_record) + fp->meta_dim * sizeof(uint32_t) ;
 }
 
 // get pointer to metadata associated with record poited to by key from RSF_Lookup
 // return pointer to metadata (NULL in case or error)
-void *RSF_Get_meta(RSF_handle h, int64_t key){
+void *RSF_Get_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize){
   RSF_File *fp = (RSF_File *) h.p ;
   int32_t indx, page ;
   uint32_t *meta ;
@@ -589,6 +653,8 @@ void *RSF_Get_meta(RSF_handle h, int64_t key){
   page  = indx >> DIR_PAGE_SHFT ;         // directory page number
   indx &= DIR_PAGE_MASK ;                 // offset in directory page
   meta = (fp->pagetable[page])->meta + (indx * fp->meta_dim) ;
+  if(metasize) *metasize = fp->meta_dim ;
+  if(datasize) *datasize = (fp->pagetable[page])->warl[indx].rl ;
   return ( meta ) ; // address of record metadata from directory in memory
 }
 
