@@ -58,4 +58,8 @@ int64_t RSF_Put(RSF_handle h, uint32_t *meta, void *data, size_t data_size) ;
 
 int32_t RSF_Close_file(RSF_handle h) ;
 
-void RSF_Dump(char *name);
+void RSF_Dump(char *name) ;
+
+void RSF_Dump_dir(RSF_handle h) ;
+
+int32_t RSF_Valid_handle(RSF_handle h) ;

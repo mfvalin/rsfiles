@@ -31,16 +31,20 @@
 // 4   : end of segment record
 // 255 : deleted record
 //
-// rt:rlx:zr is also used for endianness detection, least significant byte (zr) zero, most significant byte (rt) non zero
-// the zr field is ALWAYS 0
+// rt:rlx:zr can be used for endianness detection, least significant byte (zr) ZR_xx, most significant byte (rt) RT_xx
+// rt and zr can never be both 0
+// the zr field is 0 for start_of_record and 0xFF for end_of_record
 // max record length is 2**48 - 1 bytes (rl in bytes) (256 TBytes)
 
-#define RT_INVALID 0
+#define RT_NULL    0
 #define RT_DATA    1
 #define RT_DIR     2
 #define RT_SOS     3
 #define RT_EOS     4
-#define RT_DEL     0xFF
+#define RT_DEL  0x80
+
+#define ZR_SOR     0
+#define ZR_EOR  0xFF
 
 #define RL_SOR sizeof(start_of_record)
 #define RL_EOR sizeof(end_of_record)
@@ -62,13 +66,13 @@ typedef struct {                   // record header
   uint32_t rl ;                    // lower 32 bits of record length (bytes)
 } start_of_record ;
 
-#define SOR {RT_DATA, 0, 0, 0}
+#define SOR {RT_DATA, 0, ZR_SOR, 0}
 
 // record length from start_of_record (0 if invalid)
-// rt : expected record type
+// rt : expected record type (0 means everrything is O.K.)
 static inline uint64_t RSF_Rl_sor(start_of_record sor, int rt){
   uint64_t rl ;
-  if(sor.zr != 0 ) return 0 ;                    // invalid sor
+  if(sor.zr != ZR_SOR ) return 0 ;               // invalid sor
   if(sor.rt != rt && sor.rt != 0 ) return 0 ;    // invalid sor
   rl = sor.rlx ; rl <<= 32 ; rl += sor.rl ;      // record length
   return rl ;
@@ -79,13 +83,13 @@ typedef struct {                   // record trailer
   uint32_t rt:8, rlx:16, zr:8 ;    // zero, upper 16 bits of record length, record type
 } end_of_record ;
 
-#define EOR {0, RT_DATA, 0, 0}
+#define EOR {0, RT_DATA, 0,ZR_EOR }
 
 // record length from end_of_record (0 if invalid)
-// rt : expected record type
+// rt : expected record type (0 means everrything is O.K.)
 static inline uint64_t RSF_Rl_eor(end_of_record eor, int rt){
   uint64_t rl ;
-  if(eor.zr != 0) return 0 ;                     // invalid eor
+  if(eor.zr != ZR_EOR) return 0 ;                // invalid eor
   if(eor.rt != rt && eor.rt != 0 ) return 0 ;    // invalid eor
   rl = eor.rlx ; rl <<= 32 ; rl += eor.rl ;      // record length
   return rl ;
@@ -111,19 +115,20 @@ typedef struct{           // start of segment record, matched by a corresponding
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes)
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of sparse segment size (bytes) (same as seg if not sparse file)
   uint32_t dir[2] ;       // upper[0], lower[1] 32 bits of directory record offset in segment (bytes)
+  uint32_t dirs[2] ;      // upper[0], lower[1] 32 bits of directory record size (bytes)
   end_of_record tail ;    // rt=3
 } start_of_segment ;
 
-#define SOS { {RT_SOS, 0, 0, sizeof(start_of_segment)},  \
-              {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, 0, {0, 0}, {0, 0}, {0, 0}, \
-              {sizeof(start_of_segment), RT_SOS, 0, 0} }
+#define SOS { {RT_SOS, 0, ZR_SOR, sizeof(start_of_segment)},  \
+              {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
+              {sizeof(start_of_segment), RT_SOS, 0, ZR_EOR} }
 
 typedef struct{           // head part of end_of_segment record (low address in file)
   start_of_record head ;  // rt=4
   uint32_t sign ;         // 0xBEBEFADA hex signature
 } end_of_segment_lo ;
 
-#define EOSLO { {RT_EOS, 0, 0, 0}, 0xBEBEFADA }
+#define EOSLO { {RT_EOS, 0, 0, ZR_SOR}, 0xBEBEFADA }
 
 typedef struct{           // tail part of end_of_segment record (high address in file)
   uint32_t sign ;         // 0xCAFEFADE hex signature
@@ -131,10 +136,11 @@ typedef struct{           // tail part of end_of_segment record (high address in
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes)
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of sparse segment size (bytes) (0 if not sparse file)
   uint32_t dir[2] ;       // upper[0], lower[1] 32 bits of directory record offset in segment (bytes)
+  uint32_t dirs[2] ;      // upper[0], lower[1] 32 bits of directory record size (bytes)
   end_of_record tail ;    // rt=4
 } end_of_segment_hi ;
 
-#define EOSHI { 0xCAFEFADE, 0, {0, 0}, {0, 0}, {0, 0}, {0, RT_EOS, 0, 0} }
+#define EOSHI { 0xCAFEFADE, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, RT_EOS, 0, ZR_EOR} }
 
 typedef struct{           // compact end of segment (non sparse file)
   end_of_segment_lo l ;   // head part of end_of_segment record
@@ -239,17 +245,17 @@ static inline void RSF_File_init(RSF_File *fp){
   fp->lastpage   = -1 ;
 }
 
-static inline size_t RSF_Disk_dir_entry_size(RSF_File *fp){      // size of a directory entry
+static inline size_t RSF_Disk_dir_entry_size(RSF_File *fp){      // size of a file directory entry
   return ( sizeof(uint32_t)*fp->meta_dim + sizeof(disk_dir_entry) ) ;
 }
 
-static inline size_t RSF_Disk_dir_size(RSF_File *fp){      // size of the record containing the disk directory
+static inline size_t RSF_Disk_dir_size(RSF_File *fp){      // size of the record containing the disk directory in file
   return ( sizeof(disk_directory) +                                                 // base size, includes SOR
            ( sizeof(uint32_t)*fp->meta_dim + sizeof(disk_dir_entry) ) * fp->dir_used +  // disk entry size * nb of records
            sizeof(end_of_record) ) ;                                                // end of record
 }
 
-static inline size_t RSF_Dir_page_size(RSF_File *fp){      // size of a directory page in memory
+static inline size_t RSF_Dir_page_size(RSF_File *fp){            // size of a directory page in memory
   return ( sizeof(dir_page) +                                    // base size, including warl table
            fp->meta_dim * sizeof(uint32_t) * DIR_PAGE_SIZE ) ;   // metadata for the page
 }
