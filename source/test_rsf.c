@@ -1,10 +1,80 @@
 #include <rsf.h>
+
 #if defined(TEST1)
+#define NDATA 10
+#define NREC 3
+#define META_SIZE 6
+int the_test(int argc, char **argv){
+//   start_of_record sor = {0, 1, 4, 32767} ;
+  int fd ;
+  RSF_handle h ;
+  int32_t meta_dim = META_SIZE ;
+  uint32_t meta[META_SIZE] ;
+  uint32_t mask[META_SIZE] ;
+  uint32_t criteria[META_SIZE] ;
+  int32_t data[NDATA+NREC] ;
+  size_t data_size ;
+  int32_t i, j, k, ndata ;
+  char *names[] = { "bad.rsf", "demo1.rsf", "demo2.rsf", "demo3.rsf", NULL };
+  int32_t zero = 0 ;
+  int64_t key0 ;
+  int i0 = 0;
+  int j0 ;
+  int64_t keys[NREC * 16] ;
+  uint32_t *dataptr, *metaptr ;
+  int32_t meta_size ;
+
+  bzero(mask, META_SIZE*sizeof(uint32_t)) ;  // search mask (ignore everything for match purposes)
+  for(i=0 ; i<5 ; i++) fprintf(stderr,"%d %p",i, names[i]) ; fprintf(stderr,"\n");
+
+  meta[0]           = 0xCAFEFADEu ;
+  meta[META_SIZE-1] = 0xDEABDEEFu ;
+
+  h = RSF_Open_file("tag-ada.rsf", RSF_RW, &zero, "DeMo", NULL);
+  if( ! RSF_Valid_handle(h) ) {
+    fprintf(stderr,"create with metadata length == 0 failed as expected\n") ;
+  }else{
+    fprintf(stderr,"ERROR: create with metadata length == 0 did not fail as expected\n") ;
+  }
+
+  fprintf(stderr,"=========== file creation test 1 ===========\n") ;
+  for(k=0 ; k<4 ; k++){
+//     fprintf(stderr,"before RSF_Open_file\n");
+    fprintf(stderr,"before RSF_Open_file, k = %d, p = %s\n", k, names[k]) ;
+    h = RSF_Open_file(names[k], 0, &meta_dim, "DeMo", NULL);
+    fprintf(stderr,"after RSF_Open_file\n");
+    if( ! RSF_Valid_handle(h) ) {
+      fprintf(stderr,"ERROR: open failed for file '%s'\n", names[k]) ;
+      continue ;
+    }
+//     fprintf(stderr,"before put\n");
+    for(i = 0 ; i < NREC ; i++){
+      fprintf(stderr,"writing record\n");
+//       fprintf(stderr,"writing record %d\n",i) ;
+      for(j=1 ; j < meta_dim-1 ; j++) {
+        meta[j] = (j << 16) + i + (k << 8) ;
+      }
+      ndata = NDATA + i0 ;
+      data_size = ndata * sizeof(data[0]) ;
+      for(j=0 ; j < ndata    ; j++) {
+        data[j] = j+i0 ;
+      }
+      RSF_Put(h, meta, data, data_size) ; i0++ ;
+    }
+    fprintf(stderr,"%s created\n",names[k]) ;
+    RSF_Dump_dir(h) ;
+    RSF_Close_file(h) ;
+    RSF_Dump(names[k]) ;
+  }
+}
+#endif
+
+#if defined(TEST3)
 // basic function test
 #define NDATA 10
 #define NREC 3
 #define META_SIZE 6
-int main(int argc, char **argv){
+int the_test(int argc, char **argv){
 //   start_of_record sor = {0, 1, 4, 32767} ;
   int fd ;
   RSF_handle h ;
@@ -28,9 +98,6 @@ int main(int argc, char **argv){
   bzero(mask, META_SIZE*sizeof(uint32_t)) ;  // search mask (ignore everything for match purposes)
   for(i=0 ; i<5 ; i++) fprintf(stderr,"%d %p",i, names[i]) ; fprintf(stderr,"\n");
 
-//   fd = open("demo.dat", O_RDWR + O_CREAT, 0755) ;
-//   write(fd, &sor, sizeof(sor));
-//   close(fd) ;
   meta[0]           = 0xCAFEFADEu ;
   meta[META_SIZE-1] = 0xDEABDEEFu ;
 
@@ -68,7 +135,8 @@ int main(int argc, char **argv){
 //     fprintf(stderr,"after RSF_Close_file, k = %d\n", k);
 //     RSF_Dump(names[k]) ;
   }
-// exit(0) ;
+exit(0) ;
+#if 0
 //   bzero(mask, META_SIZE*sizeof(uint32_t)) ;  // search mask (ignore everything for match purposes)
   system("cat demo[1-3].rsf >demo0.rsf") ;
   fprintf(stderr,"=========== concatenation test ===========\n") ;
@@ -79,6 +147,9 @@ int main(int argc, char **argv){
   h = RSF_Open_file("demo0.rsf", RSF_RW, &meta_dim, "DeMo", NULL);
   fprintf(stderr,"meta_dim = %d\n", meta_dim) ;
 exit(0) ;
+#endif
+// ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++=//
+#if 0
   RSF_Dump_dir(h) ;
 exit(0) ;
   for(i = 0 ; i < NREC ; i++){
@@ -129,6 +200,7 @@ fprintf(stderr,"calling RSF_Lookup, crit = %8.8x @%p, mask = %8.8x @%p\n", crite
 
   fprintf(stderr,"=========== dump file test ===========\n") ;
 //   RSF_Dump("demo0.rsf") ;
+#endif
 }
 #endif
 
@@ -150,7 +222,7 @@ static int32_t Lock(int fd, int lock){
 // if(status != 0) perror("LOCK ");
   return status ;
 }
-int main(int argc, char **argv){
+int the_test(int argc, char **argv){
   int fd ;
   int rank ;
 
@@ -176,3 +248,7 @@ int main(int argc, char **argv){
   MPI_Finalize() ;
 }
 #endif
+
+int main(int argc, char **argv){
+  return the_test(argc, argv) ;
+}

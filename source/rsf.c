@@ -806,7 +806,7 @@ fprintf(stderr, "file='%s', mode = %d, fd = %d, size = %ld\n",fp->name,mode,fp->
   if(fp->mode == RSF_RW) {               // read+write
 fprintf(stderr,"RSF_Open_file: 3a\n");
     if(fp->size == 0){                   // zero size file in write mode
-fprintf(stderr,"RSF_Open_file: 3b\n");
+fprintf(stderr,"RSF_Open_file: 3b, meta_dim = %d\n", *meta_dim) ;
       if(*meta_dim <= 0) {
         unlink(fname) ;
         goto ERROR ;    // metadata length MUST BE > 0 when creating a file
@@ -822,6 +822,7 @@ fprintf(stderr,"RSF_Open_file: 3b\n");
       fp->last_op = OP_WRITE ;
       fp->isnew = 1 ;
       fp->seg_max = 0 ;                  // not a sparse segment
+fprintf(stderr,"RSF_Open_file: 3c\n");
     } else {                             // append to file
 fprintf(stderr,"RSF_Open_file: 3c\n");
       offset_eof = lseek(fp->fd, -sizeof(eos), SEEK_END) + sizeof(eos) ;
@@ -874,7 +875,7 @@ fprintf(stderr,"RSF_Open_file: opening in append mode\n");
     fp->isnew = 0 ;                    // not a new file
     fp->seg_max = 0 ;                  // not a sparse segment
   }
-
+fprintf(stderr,"RSF_Open_file: 4, fp = %p\n", fp);
   handle.p = fp ;
 //   fp->slot = RSF_Set_file_slot(fp) ;
   return handle ;
