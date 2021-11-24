@@ -60,7 +60,9 @@ void *RSF_Get_record(RSF_handle h, int64_t key, void *record, uint64_t size, voi
 void *RSF_Record_meta(RSF_handle h, void *record, int32_t *metasize) ;
 void *RSF_Record_data(RSF_handle h, void *record, int32_t *datasize) ;
 
-void *RSF_Get_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize) ;
+void        *RSF_Get_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize) ;
+void        *RSF_get_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize) ;
+void *RSF_Get_record_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize) ;
 
 int64_t RSF_Put(RSF_handle h, uint32_t *meta, void *data, size_t data_size) ;
 

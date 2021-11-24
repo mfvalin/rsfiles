@@ -31,7 +31,7 @@
 // 4   : end of segment record
 // 255 : deleted record
 //
-// rt:rlx:zr can be used for endianness detection, least significant byte (zr) ZR_xx, most significant byte (rt) RT_xx
+// rt:rlm:zr can be used for endianness detection, least significant byte (zr) ZR_xx, most significant byte (rt) RT_xx
 // rt and zr can never be both 0
 // the zr field is 0 for start_of_record and 0xFF for end_of_record
 // max record length is 2**48 - 1 bytes (rl in bytes) (256 TBytes)
@@ -53,48 +53,6 @@
 #define RL_EOSH sizeof(end_of_segment_hi)
 #define RL_EOS (RL_EOSL + RL_EOSH)
 
-//    structure of a record (array of 32 bit items)
-//      ZR      RLX     RT      RL                                       RL        ZR      RLX     RT
-//    +----+----------+----+------------+-----                 -----+------------+----+----------+----+
-//    |    |          |    |            |          DATA             |            |    |          |    |
-//    +----+----------+----+------------+-----                 -----+------------+----+----------+----+
-//       8       16      8      32                                        32        8       16      8   (# of bits)
-//    <----------------------------------  RLX * 2**32 + RL bytes  ----------------------------------->
-
-typedef struct {                   // record header
-  uint32_t rt:8, rlx:16, zr:8 ;    // zero, upper 16 bits of record length, record type
-  uint32_t rl ;                    // lower 32 bits of record length (bytes)
-} start_of_record ;
-
-#define SOR {RT_DATA, 0, ZR_SOR, 0}
-
-// record length from start_of_record (0 if invalid)
-// rt : expected record type (0 means everrything is O.K.)
-static inline uint64_t RSF_Rl_sor(start_of_record sor, int rt){
-  uint64_t rl ;
-  if(sor.zr != ZR_SOR ) return 0 ;               // invalid sor
-  if(sor.rt != rt && sor.rt != 0 ) return 0 ;    // invalid sor
-  rl = sor.rlx ; rl <<= 32 ; rl += sor.rl ;      // record length
-  return rl ;
-}
-
-typedef struct {                   // record trailer
-  uint32_t rl ;                    // lower 32 bits of record length
-  uint32_t rt:8, rlx:16, zr:8 ;    // zero, upper 16 bits of record length, record type
-} end_of_record ;
-
-#define EOR {0, RT_DATA, 0,ZR_EOR }
-
-// record length from end_of_record (0 if invalid)
-// rt : expected record type (0 means everrything is O.K.)
-static inline uint64_t RSF_Rl_eor(end_of_record eor, int rt){
-  uint64_t rl ;
-  if(eor.zr != ZR_EOR) return 0 ;                // invalid eor
-  if(eor.rt != rt && eor.rt != 0 ) return 0 ;    // invalid eor
-  rl = eor.rlx ; rl <<= 32 ; rl += eor.rl ;      // record length
-  return rl ;
-}
-
 // convert a pair of unsigned 32 bit elements into an unsigned 64 bit element
 static inline uint64_t RSF_32_to_64(uint32_t u32[2]){
   uint64_t u64;
@@ -105,6 +63,50 @@ static inline uint64_t RSF_32_to_64(uint32_t u32[2]){
 static inline void RSF_64_to_32(uint32_t u32[2], uint64_t u64){
   u32[0] = (u64 >> 32) ;
   u32[1] = (u64 & 0xFFFFFFFFu) ;
+}
+
+//    structure of a record (array of 32 bit items)
+//      ZR    RLM    RT   RL[0]   RL[1]                               RL[0]   RL[1]   ZR    RLM    RT
+//    +----+-------+----+-------+-------+-----                 -----+-------+-------+----+-------+----+
+//    |    |       |    |       |       |          DATA             |       |       |    |       |    |
+//    +----+-------+----+-------+-------+-----                 -----+-------+-------+----+-------+----+
+//      8     16     8     32      32                                  32      32      8    16     8   (# of bits)
+//    <--------------------------------  RL[0] * 2**32 + RL[1] bytes  -------------------------------->
+
+typedef struct {                   // record header
+  uint32_t rt:8, rlm:16, zr:8 ;    // ZR_SOR, metadata length, record type
+  uint32_t rl[2] ;                 // upper[0], lower[1] 32 bits of record length (bytes)
+} start_of_record ;
+
+#define SOR {RT_DATA, 0, ZR_SOR, {0, 0}}
+
+// record length from start_of_record (0 if invalid)
+// rt : expected record type (0 means anything is O.K.)
+static inline uint64_t RSF_Rl_sor(start_of_record sor, int rt){
+  uint64_t rl ;
+  if(sor.zr != ZR_SOR ) return 0 ;               // invalid sor
+  if(sor.rt != rt && sor.rt != 0 ) return 0 ;    // invalid sor
+//   rl = sor.rlx ; rl <<= 32 ; rl += sor.rl ;      // record length
+  rl = RSF_32_to_64(sor.rl) ;                    // record length
+  return rl ;
+}
+
+typedef struct {                   // record trailer
+  uint32_t rl[2] ;                 // upper[0], lower[1] 32 bits of record length
+  uint32_t rt:8, rlm:16, zr:8 ;    // ZR_EOR, metadata length, record type
+} end_of_record ;
+
+#define EOR {{0, 0}, RT_DATA, 0,ZR_EOR }
+
+// record length from end_of_record (0 if invalid)
+// rt : expected record type (0 means anything is O.K.)
+static inline uint64_t RSF_Rl_eor(end_of_record eor, int rt){
+  uint64_t rl ;
+  if(eor.zr != ZR_EOR) return 0 ;                // invalid eor
+  if(eor.rt != rt && eor.rt != 0 ) return 0 ;    // invalid eor
+//   rl = eor.rlx ; rl <<= 32 ; rl += eor.rl ;      // record length
+  rl = RSF_32_to_64(eor.rl) ;                    // record length
+  return rl ;
 }
 
 typedef struct{           // start of segment record, matched by a corresponding end of segment record
@@ -119,16 +121,16 @@ typedef struct{           // start of segment record, matched by a corresponding
   end_of_record tail ;    // rt=3
 } start_of_segment ;
 
-#define SOS { {RT_SOS, 0, ZR_SOR, sizeof(start_of_segment)},  \
+#define SOS { {RT_SOS, 0, ZR_SOR, {0, sizeof(start_of_segment)}},  \
               {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
-              {sizeof(start_of_segment), RT_SOS, 0, ZR_EOR} }
+              {{0, sizeof(start_of_segment)}, RT_SOS, 0, ZR_EOR} }
 
 typedef struct{           // head part of end_of_segment record (low address in file)
   start_of_record head ;  // rt=4
   uint32_t sign ;         // 0xBEBEFADA hex signature
 } end_of_segment_lo ;
 
-#define EOSLO { {RT_EOS, 0, 0, ZR_SOR}, 0xBEBEFADA }
+#define EOSLO { {RT_EOS, 0, ZR_SOR, {0, 0}}, 0xBEBEFADA }
 
 typedef struct{           // tail part of end_of_segment record (high address in file)
   uint32_t sign ;         // 0xCAFEFADE hex signature
@@ -140,7 +142,7 @@ typedef struct{           // tail part of end_of_segment record (high address in
   end_of_record tail ;    // rt=4
 } end_of_segment_hi ;
 
-#define EOSHI { 0xCAFEFADE, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, RT_EOS, 0, ZR_EOR} }
+#define EOSHI { 0xCAFEFADE, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {{0, 0}, RT_EOS, 0, ZR_EOR} }
 
 typedef struct{           // compact end of segment (non sparse file)
   end_of_segment_lo l ;   // head part of end_of_segment record
