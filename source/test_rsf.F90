@@ -17,6 +17,7 @@ program test_rsf
   integer(C_INT64_T), dimension(4096) :: keys
   type(C_PTR), dimension(4096) :: metaptr
   integer(C_INTPTR_T), dimension(4096) :: metapti
+  integer(C_INT32_T), dimension(:), pointer :: metap
 
   segsize = 0
   i0  = 0
@@ -98,12 +99,15 @@ program test_rsf
   do i = 1, i0
     metaptr(i) = RSF_Get_record_meta(h, keys(i), meta_dim, data_size)
     metapti(i) = transfer(metaptr(i), metapti(i))
+    call C_F_POINTER(metaptr(i), metap, [meta_dim])
+    print 3,metap(1:meta_dim)
   enddo
   print 2,metapti(1:i0)
   status = RSF_Close_file(h)
 
   print *,"=========== dump file test ==========="
   call RSF_Dump("demo0.rsf"//achar(0))
-1 format(A1,3Z9.8)
+1 format(A1,30Z9.8)
 2 format(30Z13.12)
+3 format(30Z9.8)
 end program
