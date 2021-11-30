@@ -149,7 +149,7 @@ void *RSF_Record_data(RSF_handle h, void *record, int64_t *datasize) ;
     import :: RSF_handle, C_INT32_T, C_PTR, C_SIZE_T, C_INT64_T
     type(RSF_handle), intent(IN), value :: handle
     integer(C_INT32_T), intent(IN), dimension(*) :: meta
-    type(C_PTR) :: data
+    type(C_PTR), value :: data
     integer(C_SIZE_T), intent(IN), value :: data_size
     integer(C_INT64_T) :: key
   end function RSF_Put

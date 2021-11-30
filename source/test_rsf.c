@@ -4,6 +4,7 @@
 #define NDATA 10
 #define NREC 3
 #define META_SIZE 6
+#define NFILES 4
 int the_test(int argc, char **argv){
 //   start_of_record sor = {0, 1, 4, 32767} ;
   int fd ;
@@ -12,7 +13,7 @@ int the_test(int argc, char **argv){
   uint32_t meta[META_SIZE] ;
   uint32_t mask[META_SIZE] ;
   uint32_t criteria[META_SIZE] ;
-  int32_t data[NDATA+NREC] ;
+  int32_t data[NDATA+NREC*NFILES] ;
   size_t data_size ;
   int32_t i, j, k, ndata ;
   char *names[] = { "bad.rsf", "demo1.rsf", "demo2.rsf", "demo3.rsf", NULL };
@@ -20,7 +21,7 @@ int the_test(int argc, char **argv){
   int64_t key0 ;
   int i0 = 0;
   int j0 ;
-  int64_t keys[NREC * 16] ;
+  int64_t keys[4096] ;
   uint32_t *dataptr, *metaptr ;
   int32_t meta_size ;
 
@@ -55,10 +56,15 @@ int the_test(int argc, char **argv){
         meta[j] = (j << 16) + i + (k << 8) ;
       }
       ndata = NDATA + i0 ;
+      if(ndata > NDATA+NREC*NFILES){
+        fprintf(stderr,"ERROR: data overflow ndata = %d, max allowed = %d\n", ndata, NDATA+NREC*NFILES);
+        exit(1) ;
+      }
       data_size = ndata * sizeof(data[0]) ;
       for(j=0 ; j < ndata    ; j++) {
         data[j] = j+i0 ;
       }
+//       fprintf(stderr," : %9x %9x %9x\n",data[0], data[ndata/2], data[ndata-1]);
       RSF_Put(h, meta, data, data_size) ; i0++ ;
     }
     fprintf(stderr,"%s created\n",names[k]) ;
@@ -66,6 +72,66 @@ int the_test(int argc, char **argv){
     RSF_Close_file(h) ;
     RSF_Dump(names[k]) ;
   }
+  system("cat demo[1-3].rsf >demo0.rsf") ;
+  fprintf(stderr,"=========== concatenation test ===========\n") ;
+  RSF_Dump("demo0.rsf") ;
+// exit(0) ;
+  fprintf(stderr,"=========== add records test ===========\n") ;
+  meta_dim = 0 ;
+  h = RSF_Open_file("demo0.rsf", RSF_RW, &meta_dim, "DeMo", NULL);
+  fprintf(stderr,"meta_dim = %d\n", meta_dim) ;
+  for(i = 0 ; i < NREC ; i++){
+    for(j=1 ; j < meta_dim-1 ; j++) {
+      meta[j] = (j << 16) + i + (0xF << 8) ;
+    }
+    ndata = NDATA + i0 ;
+    data_size = ndata * sizeof(int32_t) ;
+    if(ndata > NDATA+NREC*NFILES){
+      fprintf(stderr,"ERROR: data overflow ndata = %d, max allowed = %d\n", ndata, NDATA+NREC*NFILES);
+      exit(1) ;
+    }
+    for(j=0 ; j < ndata    ; j++) {
+      data[j] = j+i0 ;
+    }
+    RSF_Put(h, meta, data, data_size) ; 
+    i0++ ;
+  }
+  fprintf(stderr,"=========== dump memory directory test ===========\n") ;
+  RSF_Dump_dir(h) ;
+  RSF_Close_file(h) ;
+
+  fprintf(stderr,"=========== scan test ===========\n") ;
+  h = RSF_Open_file("demo0.rsf", RSF_RO, &meta_dim, "DeMo", NULL);
+  key0 = 0 ;
+  bzero(keys, sizeof(keys)) ;
+  i0 = 0 ;
+  bzero(mask,sizeof(mask)) ;
+  for(j0 = 0 ; j0 < META_SIZE ; j0++) fprintf(stderr,"|%8.8x|",mask[j0]); fprintf(stderr,"\n");
+// fprintf(stderr,"calling RSF_Lookup, crit = %8.8x @%p, mask = %8.8x @%p\n", criteria[0], criteria, mask[0], mask);
+  key0 = RSF_Lookup(h, key0, &criteria[0], &mask[0]) ;
+  while(key0 > 0) {
+    keys[i0++] = key0 ;
+    key0 = RSF_Lookup(h, key0, &criteria[0], &mask[0]) ;
+  }
+  for(j0 = 0 ; j0 < i0 ; j0++) fprintf(stderr,"%12.12lx ",keys[j0]) ;
+//   for(j0 = 0 ; keys[j0] != 0 ; j0++) fprintf(stderr,"%12.12lx ",keys[j0]) ;
+  fprintf(stderr,"\n") ;
+  fprintf(stderr,"h = %p\n",h);
+// exit(0) ;
+  metaptr = NULL ;
+  metaptr = (int32_t *) RSF_Get_record_meta(h, keys[0], &meta_size, &data_size) ;
+  for(j0 = 0 ; keys[j0] != 0 ; j0++){
+//     metaptr = (uint32_t *) RSF_Get_meta(h, keys[j0], &meta_size, &data_size) ;
+    metaptr = (uint32_t *) RSF_Get_record_meta(h, keys[j0], &meta_size, &data_size) ;
+    fprintf(stderr,"%p ",metaptr);
+//     dataptr = RSF_Get(h, keys[j0], NULL, &data_size) ;
+  }
+  fprintf(stderr,"\n");
+  RSF_Close_file(h) ;
+// exit(0) ;
+
+  fprintf(stderr,"=========== dump file test ===========\n") ;
+  RSF_Dump("demo0.rsf") ;
 }
 #endif
 

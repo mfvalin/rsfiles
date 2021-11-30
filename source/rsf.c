@@ -92,12 +92,25 @@ fprintf(stderr,"rsf file table slot %d freed\n",i);
 // consistency checks on file handle fp
 // if valid, return slot number + 1, otherwise return 0 (corresponding to an invalid slot)
 static int32_t RSF_Valid_file(RSF_File *fp){
-  if(fp == NULL) return 0 ;                   // NULL pointer
-  if(fp->fd < 0) return 0 ;                   // file is not open, ERROR
+  if(fp == NULL) {
+    fprintf(stderr,"ERROR: RSF_Valid_file, file handle is NULL\n");
+    return 0 ;                   // NULL pointer
+  }
+  if(fp->fd < 0) {
+    fprintf(stderr,"ERROR: RSF_Valid_file, fd < 0 (%d)\n", fp->fd);
+    return 0 ;                   // file is not open, ERROR
+  }
   // get file slot from file handle table if not initialized
   if(fp->slot < 0) fp->slot = RSF_Find_file_slot(fp) ;
-  if(fp->slot < 0) return 0 ;                 // not in file handle table
-  if(fp != rsf_files[fp->slot] ) return 0 ;   // inconsistent slot
+  if(fp->slot < 0) {
+    fprintf(stderr,"ERROR: RSF_Valid_file, no slot found\n");
+    return 0 ;                 // not in file handle table
+  }
+  if(fp != rsf_files[fp->slot] ) {
+    fprintf(stderr,"ERROR: RSF_Valid_file, inconsistent slot data %p %p, slot = %d\n", fp, rsf_files[fp->slot], fp->slot);
+    return 0 ;   // inconsistent slot
+  }
+//   fprintf(stderr,"DEBUG: slot = %d\n", fp->slot);
   return fp->slot + 1;
 }
 
@@ -224,7 +237,7 @@ static int64_t RSF_Scan_directory(RSF_File *fp, int64_t key0, uint32_t *criteria
   slot <<= 32 ;                        // move to upper 32 bits
   if( key0 <= 0 ) key0 = 0 ;           // first record position for this file
   index = key0 & 0x7FFFFFFF ;          // starting ordinal for search (one more than what key0 points to)
-fprintf(stderr,"key0 = %12.12lx, index = %d, mask = %8.8x\n",key0, index, mask[0]) ;
+// fprintf(stderr,"key0 = %12.12lx, index = %d, mask = %8.8x\n",key0, index, mask[0]) ;
   if(index > fp->dir_used) {
 fprintf(stderr,"key0 points beyond last record\n") ;
     return -1 ; // key0 points beyond last record
@@ -246,17 +259,17 @@ fprintf(stderr,"nitems <= 0\n") ;
     if(cur_page == NULL) {
       break ;
     }
-fprintf(stderr,"RSF_Scan_directory scanpage = %d, fp->dirpages = %d, index0 = %d; cur_page = %p, cur_page->nused = %d\n", scanpage, fp->dirpages, index0, cur_page, cur_page->nused) ;
+// fprintf(stderr,"RSF_Scan_directory scanpage = %d, fp->dirpages = %d, index0 = %d; cur_page = %p, cur_page->nused = %d\n", scanpage, fp->dirpages, index0, cur_page, cur_page->nused) ;
     meta = cur_page->meta ;             // bottom of metadata for this page
     meta += nitems * index0 ;           // bump meta to reflect index0 (initial position)
     for(i = index0 ; i < cur_page->nused ; i++){
 
-fprintf(stderr,"RSF_Scan_directory mask = %8.8x, nitems = %d %d\n",mask[0], nitems, fp->meta_dim);
+// fprintf(stderr,"RSF_Scan_directory mask = %8.8x, nitems = %d %d\n",mask[0], nitems, fp->meta_dim);
       if((*scan_match)(criteria, meta, mask, nitems) == 1 ){   // do we have a match at position i ?
         slot = slot + index + 1 ;       // add record number (origin 1) to slot
         *wa = cur_page->warl[i].wa ;    // position of record in file
         *rl = cur_page->warl[i].rl ;    // record length
-fprintf(stderr,"RSF_Scan_directory slot = %12.12lx\n",slot) ;
+// fprintf(stderr,"RSF_Scan_directory slot = %12.12lx\n",slot) ;
         return slot ;                   // return key value containing file slot and record index
       }
       index++ ;                         // next record
@@ -432,7 +445,7 @@ int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, in
       if( criteria[i] != meta[i] ) return 0 ;  // mismatch, no need to go any further
     }
   }
-  fprintf(stderr,"DEBUG: rsf_default_match, nitems = %d, MATCH\n", nitems);
+//   fprintf(stderr,"DEBUG: rsf_default_match, nitems = %d, MATCH\n", nitems);
   return 1 ;
 }
 
@@ -587,8 +600,8 @@ int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mas
   RSF_File *fp = (RSF_File *) h.p ;
   uint64_t wa, rl ;
   int i ;
-fprintf(stderr,"in RSF_Lookup key = %16.16lx, crit = %8.8x @%p, mask = %8.8x @%p\n", key0, criteria[0], criteria, mask[0], mask) ;
-for(i=0 ; i<6 ; i++) fprintf(stderr,"%8.8x ",mask[i]) ; fprintf(stderr,"\n") ;
+// fprintf(stderr,"in RSF_Lookup key = %16.16lx, crit = %8.8x @%p, mask = %8.8x @%p\n", key0, criteria[0], criteria, mask[0], mask) ;
+// for(i=0 ; i<6 ; i++) fprintf(stderr,"%8.8x ",mask[i]) ; fprintf(stderr,"\n") ;
   return RSF_Scan_directory(fp, key0, criteria, mask, &wa, &rl) ;  // wa and rl not sentback to caller
 }
 
@@ -672,7 +685,7 @@ void *RSF_Get_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datas
   RSF_File *fp ;
   int32_t indx, page ;
   uint32_t *meta ;
-
+fprintf(stderr,"DEBUG: RSF_Get_meta\n");
 return NULL ;
 }
 
@@ -691,10 +704,8 @@ void *RSF_Get_record_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t
   int32_t indx, page ;
   uint32_t *meta ;
 
-return NULL ;
   fp = (RSF_File *) h.p ;
   if( ! RSF_Valid_file(fp) ) return NULL ;   // something not O.K. with fp
-fprintf(stderr,"RSF_Get_record_meta\n") ; 
   indx = key & 0x7FFFFFFF ;               // get record numer from key
   indx-- ;                                // set indx to origin 0 ;
   page  = indx >> DIR_PAGE_SHFT ;         // directory page number
