@@ -651,7 +651,7 @@ void *RSF_Record_meta(RSF_handle h, void *record, int32_t *metasize){
   return record + sizeof(start_of_record) ;     // position of metadata in record
 }
 
-void *RSF_Record_data(RSF_handle h, void *record, int32_t *datasize){
+void *RSF_Record_data(RSF_handle h, void *record, int64_t *datasize){
   RSF_File *fp = (RSF_File *) h.p ;
   int64_t payload ;
   start_of_record *sor = (start_of_record *) record ;
@@ -746,9 +746,9 @@ int32_t RSF_Valid_handle(RSF_handle h){
 //   if mode is zero, it will be RW if file is writable or can be created, RO otherwise
 // meta_dim is only used as input if creating a file, upon return, it is set to meta_dim from the file
 // appl is the 4 character identifier for the application
-// segsize is only used as input if the file is to be "sparse", it is set to segment size from file upon return
-// if segsize is NULL, it is ignored
-RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *appl, int64_t *segsize){
+// segsizep is only used as input if the file is to be "sparse", it is set to segment size from file upon return
+// if segsizep is NULL, or *segsizep == 0, it is ignored
+RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *appl, int64_t *segsizep){
   RSF_File *fp = (RSF_File *) malloc(sizeof(RSF_File)) ;
   struct stat statbuf ;
   start_of_segment sos = SOS ;
@@ -757,9 +757,11 @@ RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *app
   int64_t size_last, size_last2, dir_last, dir_last2 ;
   end_of_segment eos ;
   int i ;
+  int64_t segsize = 0;
 
-fprintf(stderr,"RSF_Open_file: 0\n");
-fprintf(stderr,"RSF_Open_file: 0b, filep = '%p'\n", fname);
+// fprintf(stderr,"RSF_Open_file: 0\n");
+// fprintf(stderr,"RSF_Open_file: 0b, filep = '%p'\n", fname);
+  if(segsizep) segsize = *segsizep;      // segsize will be 0 if segsizep is NULL
   handle.p = NULL ;
   if(fp == NULL) return handle ;         // allocation failed
 
@@ -769,7 +771,7 @@ fprintf(stderr,"RSF_Open_file: 0b, filep = '%p'\n", fname);
     case 0:                              // automatic mode
       mode = RSF_RW ;                    // try to open for read+write/create 
       fp->fd = open(fname, O_RDWR | O_CREAT, 0777) ;
-fprintf(stderr,"RSF_Open_file: 1a, fd = %d\n", fp->fd);
+// fprintf(stderr,"RSF_Open_file: 1a, fd = %d\n", fp->fd);
       if(fp->fd == -1){                  // fallback, open in read only mode
         mode = RSF_RO ;
         fp->fd = open(fname, O_RDONLY) ;
@@ -793,7 +795,7 @@ fprintf(stderr,"RSF_Open_file: 1a, fd = %d\n", fp->fd);
       break ;
   }
 
-fprintf(stderr,"RSF_Open_file: 2, fd = %d\n", fp->fd);
+// fprintf(stderr,"RSF_Open_file: 2, fd = %d\n", fp->fd);
   if(fp->fd == -1){                      // open in requested mode failed
     goto ERROR ;
   }
@@ -801,12 +803,12 @@ fprintf(stderr,"RSF_Open_file: 2, fd = %d\n", fp->fd);
   fp->name = realpath(fname, NULL) ;     // get canonical path
   stat(fp->name, &statbuf) ;             // get file information
   fp->size = statbuf.st_size ;           // file size
-fprintf(stderr, "file='%s', mode = %d, fd = %d, size = %ld\n",fp->name,mode,fp->fd,fp->size);
+// fprintf(stderr, "file='%s', mode = %d, fd = %d, size = %ld\n",fp->name,mode,fp->fd,fp->size);
 
   if(fp->mode == RSF_RW) {               // read+write
-fprintf(stderr,"RSF_Open_file: 3a\n");
+// fprintf(stderr,"RSF_Open_file: 3a\n");
     if(fp->size == 0){                   // zero size file in write mode
-fprintf(stderr,"RSF_Open_file: 3b, meta_dim = %d\n", *meta_dim) ;
+// fprintf(stderr,"RSF_Open_file: 3b, meta_dim = %d\n", *meta_dim) ;
       if(*meta_dim <= 0) {
         unlink(fname) ;
         goto ERROR ;    // metadata length MUST BE > 0 when creating a file
@@ -822,9 +824,9 @@ fprintf(stderr,"RSF_Open_file: 3b, meta_dim = %d\n", *meta_dim) ;
       fp->last_op = OP_WRITE ;
       fp->isnew = 1 ;
       fp->seg_max = 0 ;                  // not a sparse segment
-fprintf(stderr,"RSF_Open_file: 3c\n");
+// fprintf(stderr,"RSF_Open_file: 3c\n");
     } else {                             // append to file
-fprintf(stderr,"RSF_Open_file: 3c\n");
+// fprintf(stderr,"RSF_Open_file: 3c\n");
       offset_eof = lseek(fp->fd, -sizeof(eos), SEEK_END) + sizeof(eos) ;
       read(fp->fd, &eos, sizeof(eos)) ;  // get end of segment expected at end of file
       if(eos.h.tail.rt != RT_EOS || eos.h.tail.zr != ZR_EOR) {   // invalid EOS
@@ -832,7 +834,7 @@ fprintf(stderr,"RSF_Open_file: 3c\n");
                eos.h.tail.rt, eos.h.tail.zr, eos.h.tail.rl[0], eos.h.tail.rl[1], eos.h.tail.rlm);
         goto ERROR ;
       }
-fprintf(stderr,"RSF_Open_file: opening in append mode\n");
+// fprintf(stderr,"RSF_Open_file: opening in append mode\n");
       size_last = RSF_32_to_64(eos.h.seg) ;
       dir_last  = RSF_32_to_64(eos.h.dir) ;
       offset_last = offset_eof - size_last ;
@@ -875,7 +877,7 @@ fprintf(stderr,"RSF_Open_file: opening in append mode\n");
     fp->isnew = 0 ;                    // not a new file
     fp->seg_max = 0 ;                  // not a sparse segment
   }
-fprintf(stderr,"RSF_Open_file: 4, fp = %p\n", fp);
+// fprintf(stderr,"RSF_Open_file: 4, fp = %p\n", fp);
   handle.p = fp ;
 //   fp->slot = RSF_Set_file_slot(fp) ;
   return handle ;
