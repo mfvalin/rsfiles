@@ -769,14 +769,6 @@ void *RSF_Record_data(RSF_handle h, void *record, int64_t *datasize){
   return record + sizeof(start_of_record) + fp->meta_dim * sizeof(uint32_t) ;
 }
 
-void *RSF_Get_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize){
-  RSF_File *fp ;
-  int32_t indx, page ;
-  uint32_t *meta ;
-fprintf(stderr,"DEBUG: RSF_Get_meta\n");
-return NULL ;
-}
-
 // get pointer to metadata associated with record poited to by key from RSF_Lookup
 // return pointer to metadata (NULL in case or error)
 void *RSF_Get_record_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize){

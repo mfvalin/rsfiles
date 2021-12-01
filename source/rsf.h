@@ -222,17 +222,6 @@ int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
-
-  function RSF_Get_meta(handle, key, metasize, datasize) result(p) bind(C,name='RSF_Get_meta')
-    import :: RSF_handle, C_INT32_T, C_INT64_T, C_PTR
-    implicit none
-    type(RSF_handle), intent(IN), value :: handle
-    integer(C_INT64_T), intent(IN), value :: key
-    integer(C_INT32_T), intent(OUT) :: metasize
-    integer(C_INT64_T), intent(OUT) :: datasize
-    type(C_PTR) :: p
-  end function RSF_Get_meta
-
   function RSF_Get_record_meta(handle, key, metasize, datasize) result(p) bind(C,name='RSF_Get_record_meta')
     import :: RSF_handle, C_INT32_T, C_INT64_T, C_PTR
     implicit none
@@ -243,7 +232,6 @@ int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
     type(C_PTR) :: p
   end function RSF_Get_record_meta
 #else
-void        *RSF_Get_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize) ;
 void *RSF_Get_record_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize) ;
 #endif
 
