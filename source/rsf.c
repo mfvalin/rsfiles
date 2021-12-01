@@ -558,7 +558,7 @@ size_t RSF_Adjust_data_record(RSF_handle h, uint8_t *record, size_t data_size){
 // data_size is the size (in bytes) of the data portion
 // if meta is NULL, data is a pointer to a pre allocated record
 // RSF_Adjust_data_record may have to be called
-int64_t RSF_Put(RSF_handle h, uint32_t *meta, void *data, size_t data_size){
+int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, void *data, size_t data_size){
   RSF_File *fp = (RSF_File *) h.p ;
   uint64_t record_size, directory_record_size ;
   int64_t slot ;
@@ -568,6 +568,7 @@ int64_t RSF_Put(RSF_handle h, uint32_t *meta, void *data, size_t data_size){
   end_of_record   eor = EOR ;      // end of data record
   off_t offset ;
   start_of_segment sos ;
+  RSF_record *record = NULL ;
 //   int status ;
 
   if( ! RSF_Valid_file(fp) ) return 0 ;            // something not O.K. with fp
@@ -605,8 +606,11 @@ int64_t RSF_Put(RSF_handle h, uint32_t *meta, void *data, size_t data_size){
   lseek(fp->fd , fp->next_write + fp->seg_base , SEEK_SET) ; // position file at fp->next_write
   // write record 
   if(meta == NULL){                                            // pre allocated record
-    RSF_Adjust_data_record(h, data, data_size) ;               // adjust to actual data size
-    write(fp->fd, data, data_size) ;                           // write to disk
+    // check that metadata sizes are coherent
+    record = (RSF_record *) data ;
+    if(fp->meta_dim != record->meta_size) return 0 ;
+    RSF_Adjust_data_record(h, record->data, data_size) ;               // adjust to actual data size
+    write(fp->fd, record->data, data_size) ;                           // write to disk
     // SHOULD WE FREE THE PRE ALLOCATED RECORD (data) HERE ? (probably not)
   }else{
 //     rl  = record_size & 0xFFFFFFFFu ;                // lower 32 bits
@@ -639,7 +643,7 @@ int64_t RSF_Put(RSF_handle h, uint32_t *meta, void *data, size_t data_size){
 // data_size is the actual data size
 int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size){
 
-  return RSF_Put(h,NULL, record->data, data_size) ;
+  return RSF_Put_data(h, NULL, record, data_size) ;
 }
 
 // get key to record from file fp, matching criteria & mask, starting at key0 (slot/index)
@@ -772,14 +776,6 @@ void *RSF_Get_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datas
 fprintf(stderr,"DEBUG: RSF_Get_meta\n");
 return NULL ;
 }
-
-// void *RSF_get_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize){
-//   RSF_File *fp ;
-//   int32_t indx, page ;
-//   uint32_t *meta ;
-// 
-// return NULL ;
-// }
 
 // get pointer to metadata associated with record poited to by key from RSF_Lookup
 // return pointer to metadata (NULL in case or error)

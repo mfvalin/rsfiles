@@ -65,7 +65,7 @@ int the_test(int argc, char **argv){
         data[j] = j+i0 ;
       }
 //       fprintf(stderr," : %9x %9x %9x\n",data[0], data[ndata/2], data[ndata-1]);
-      RSF_Put(h, meta, data, data_size) ; i0++ ;
+      RSF_Put_data(h, meta, data, data_size) ; i0++ ;
     }
     fprintf(stderr,"%s created\n",names[k]) ;
     RSF_Dump_dir(h) ;
@@ -93,7 +93,7 @@ int the_test(int argc, char **argv){
     for(j=0 ; j < ndata    ; j++) {
       data[j] = j+i0 ;
     }
-    RSF_Put(h, meta, data, data_size) ; 
+    RSF_Put_data(h, meta, data, data_size) ; 
     i0++ ;
   }
   fprintf(stderr,"=========== dump memory directory test ===========\n") ;
@@ -192,8 +192,8 @@ int the_test(int argc, char **argv){
       for(j=0 ; j < ndata    ; j++) {
         data[j] = j+i0 ;
       }
-      RSF_Put(h, meta, data, data_size) ; i0++ ;
-  //     s = RSF_Put(h, meta, data, data_size) ;
+      RSF_Put_data(h, meta, data, data_size) ; i0++ ;
+  //     s = RSF_Put_data(h, meta, data, data_size) ;
   //     fprintf(stderr,"slot = %16.16lx\n", s);
     }
     RSF_Dump_dir(h) ;
@@ -227,7 +227,7 @@ exit(0) ;
     for(j=0 ; j < ndata    ; j++) {
       data[j] = j+i0 ;
     }
-    RSF_Put(h, meta, data, data_size) ; i0++ ;
+    RSF_Put_data(h, meta, data, data_size) ; i0++ ;
   }
   fprintf(stderr,"=========== dump memory directory test ===========\n") ;
   RSF_Dump_dir(h) ;

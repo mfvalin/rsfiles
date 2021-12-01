@@ -192,7 +192,10 @@ void *RSF_Record_data(RSF_handle h, void *record, int64_t *datasize) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
-  function RSF_Put(handle, meta, data, data_size) result(key) bind(C,name='RSF_Put')
+  end interface
+
+  interface RSF_Put   ! generic put
+  function RSF_Put_data(handle, meta, data, data_size) result(key) bind(C,name='RSF_Put_data')
     import :: RSF_handle, C_INT32_T, C_PTR, C_SIZE_T, C_INT64_T
     implicit none
     type(RSF_handle), intent(IN), value :: handle
@@ -200,18 +203,21 @@ void *RSF_Record_data(RSF_handle h, void *record, int64_t *datasize) ;
     type(C_PTR), value :: data
     integer(C_SIZE_T), intent(IN), value :: data_size
     integer(C_INT64_T) :: key
-  end function RSF_Put
+  end function RSF_Put_data
 
-  function RSF_Put_record(handle, rh, data_size) result(key) bind(C,name='RSF_Put_record')
-    import :: RSF_handle, C_INT64_T, C_SIZE_T, RSF_record_handle
+  function RSF_Put_record(handle, r, data_size) result(key) bind(C,name='RSF_Put_record')
+    import :: RSF_handle, C_INT64_T, C_SIZE_T, RSF_record
     implicit none
     type(RSF_handle), intent(IN), value :: handle
-    type(RSF_record_handle), intent(IN), value :: rh
+    type(RSF_record), intent(IN) :: r
     integer(C_SIZE_T), intent(IN), value :: data_size
     integer(C_INT64_T) :: key
   end function RSF_Put_record
+  end interface
+
+  interface
 #else
-int64_t RSF_Put(RSF_handle h, uint32_t *meta, void *data, size_t data_size) ;
+int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, void *data, size_t data_size) ;
 int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
 #endif
 
@@ -238,7 +244,6 @@ int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
   end function RSF_Get_record_meta
 #else
 void        *RSF_Get_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize) ;
-void        *RSF_get_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize) ;
 void *RSF_Get_record_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize) ;
 #endif
 
