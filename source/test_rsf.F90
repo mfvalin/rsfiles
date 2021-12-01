@@ -18,6 +18,10 @@ program test_rsf
   type(C_PTR), dimension(4096) :: metaptr
   integer(C_INTPTR_T), dimension(4096) :: metapti
   integer(C_INT32_T), dimension(:), pointer :: metap
+  type(RSF_record_handle) :: rh
+  type(RSF_record), pointer :: rp
+  integer(C_INT64_T) :: max_data
+  integer(C_INT32_T), dimension(:), pointer :: mp, dp, mp2, dp2
 
   segsize = 0
   i0  = 0
@@ -103,6 +107,26 @@ program test_rsf
     print 3,metap(1:meta_dim)
   enddo
   print 2,metapti(1:i0)
+  print *,"=========== record buffer syntax test ==========="
+  max_data = 4096
+
+  rh = RSF_New_record_handle(h, max_data)   ! record handle
+  mp => RSF_Record_metadata(rh)
+  print *, "size of metadata mp  =",size(mp)
+  dp => RSF_Record_payload(rh)
+  print *, "size of payload dp   =",size(dp)
+  call RSF_Free_record(rh)
+  print *, "record handle memory freed"
+
+  rp => RSF_New_record(h, max_data)   ! pointer to record
+!   print *, rp%meta_size     ! this line MUST fail to compile (referencing a private component)
+  mp2 => RSF_Record_metadata(rh)
+  print *, "size of metadata mp2 =",size(mp2)
+  dp2 => RSF_Record_payload(rh)
+  print *, "size of payload  dp2 =",size(dp2)
+  call RSF_Free_record(rp)
+  print *, "record memory freed"
+  print *,"=========== close file ==========="
   status = RSF_Close_file(h)
 
   print *,"=========== dump file test ==========="

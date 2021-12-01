@@ -36,6 +36,24 @@
     private
     type(C_PTR) :: p
   end type
+
+  type, BIND(C) :: RSF_record         ! not a totally honest description
+    private
+    type(C_PTR) :: meta               ! pointer to integer metadata array
+    type(C_PTR) :: data               ! pointer to start of integer data array
+    integer(C_INT64_T) :: meta_size   ! metadata size in 32 bit units
+    integer(C_INT64_T) :: data_size   ! data payload size in bytes
+    ! dynamic data array follows, see C struct
+  end type
+
+  type, BIND(C) :: RSF_record_handle
+    private
+    type(C_PTR) :: record      ! pointer to RSF_record (see above)
+    !  type(RSF_record_handle)   :: h
+    !  type(RSF_record), pointer :: r
+    !  call C_F_POINTER(h%record, r)
+    !  r%meta, r%data, r%meta_size, r%data_size now accessible in module procedures
+  end type
 #else
 
 #include <stdio.h>
@@ -52,6 +70,18 @@ typedef struct{   // this struct only contains a pointer to the actual full cont
   void *p ;
 } RSF_handle ;
 
+typedef struct{
+  uint32_t *meta ;     // pointer to metadata array
+  void *data ;         // pointer to start of data array
+  uint64_t meta_size;  // metadata size in uint32_t units
+  uint64_t data_size;  // data payload size in bytes
+  uint32_t d[] ;       // dynamic data array
+} RSF_record ;
+
+// typedef struct{   // this struct only contains a pointer to the actual composite record
+//   void *p ;
+// } RSF_record_handle ;
+
 // metadata matching function (normally supplied by application)
 typedef int32_t RSF_Match_fn(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n) ;
 
@@ -64,6 +94,7 @@ interface
 #if defined(IN_FORTRAN_CODE)
   function RSF_Default_match(criteria, meta, mask, n) result(status) bind(C,name='RSF_Default_match')
     import :: C_INT32_T
+    implicit none
     integer(C_INT32_T), intent(IN), dimension(*) :: criteria, meta, mask
     integer(C_INT32_T), intent(IN), value :: n
     integer(C_INT32_T) :: status
@@ -71,6 +102,7 @@ interface
 
   function RSF_Base_match(criteria, meta, mask, n) result(status) bind(C,name='RSF_Default_match')
     import :: C_INT32_T
+    implicit none
     integer(C_INT32_T), intent(IN), dimension(*) :: criteria, meta, mask
     integer(C_INT32_T), intent(IN), value :: n
     integer(C_INT32_T) :: status
@@ -85,6 +117,7 @@ int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n
 #if defined(IN_FORTRAN_CODE)
   function RSF_Open_file(fname, mode, meta_dim, appl, segsize) result(handle) bind(C,name='RSF_Open_file')
     import :: RSF_handle, C_CHAR, C_INT32_T, C_INT64_T
+    implicit none
     character(C_CHAR), intent(IN), dimension(*) :: fname
     integer(C_INT32_T), intent(IN), value :: mode
     integer(C_INT32_T), intent(INOUT) :: meta_dim
@@ -99,6 +132,7 @@ RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *app
 #if defined(IN_FORTRAN_CODE)
   function RSF_Lookup(handle, key0, criteria, mask) result(key) bind(C,name='RSF_Lookup')
     import :: RSF_handle, C_INT32_T, C_INT64_T
+    implicit none
     type(RSF_handle), intent(IN), value :: handle
     integer(C_INT64_T), intent(IN), value :: key0
     integer(C_INT32_T), intent(IN), dimension(*) :: criteria, mask
@@ -109,8 +143,18 @@ int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mas
 #endif
 
 #if defined(IN_FORTRAN_CODE)
+
+  function RSF_Get_new_record(handle, key) result(rh) bind(C,name='RSF_Get_new_record')
+    import :: RSF_handle, C_INT32_T, C_INT64_T, RSF_record_handle
+    implicit none
+    type(RSF_handle), intent(IN), value :: handle
+    integer(C_INT64_T), intent(IN), value :: key
+    type(RSF_record_handle) :: rh
+  end function RSF_Get_new_record
+
   function RSF_Get_record(handle, key, record, size, meta, metasize, data, datasize) result(p) bind(C,name='RSF_Get_record')
     import :: RSF_handle, C_INT32_T, C_INT64_T, C_PTR
+    implicit none
     type(RSF_handle), intent(IN), value :: handle
     integer(C_INT64_T), intent(IN), value :: key
     type(C_PTR), intent(IN), value :: record
@@ -123,6 +167,7 @@ int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mas
 
   function RSF_Record_meta(handle, record, metasize) result(p) bind(C,name='RSF_Record_meta')
     import :: RSF_handle, C_INT32_T, C_PTR
+    implicit none
     type(RSF_handle), intent(IN), value :: handle
     type(C_PTR), intent(IN), value :: record
     integer(C_INT32_T), intent(OUT) :: metasize
@@ -131,6 +176,7 @@ int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mas
 
   function RSF_Record_data(handle, record, datasize) result(p) bind(C,name='RSF_Record_data')
     import :: RSF_handle, C_INT32_T, C_PTR, C_INT64_T
+    implicit none
     type(RSF_handle), intent(IN), value :: handle
     type(C_PTR), intent(IN), value :: record
     integer(C_INT64_T), intent(OUT) :: datasize
@@ -138,6 +184,7 @@ int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mas
   end function RSF_Record_data
 #else
 
+RSF_record *RSF_Get_new_record(RSF_handle h, int64_t key) ;
 void *RSF_Get_record(RSF_handle h, int64_t key, void *record, uint64_t size, void **meta, int32_t *metasize, void **data, uint64_t *datasize) ;
 void *RSF_Record_meta(RSF_handle h, void *record, int32_t *metasize) ;
 void *RSF_Record_data(RSF_handle h, void *record, int64_t *datasize) ;
@@ -147,20 +194,32 @@ void *RSF_Record_data(RSF_handle h, void *record, int64_t *datasize) ;
 #if defined(IN_FORTRAN_CODE)
   function RSF_Put(handle, meta, data, data_size) result(key) bind(C,name='RSF_Put')
     import :: RSF_handle, C_INT32_T, C_PTR, C_SIZE_T, C_INT64_T
+    implicit none
     type(RSF_handle), intent(IN), value :: handle
     integer(C_INT32_T), intent(IN), dimension(*) :: meta
     type(C_PTR), value :: data
     integer(C_SIZE_T), intent(IN), value :: data_size
     integer(C_INT64_T) :: key
   end function RSF_Put
+
+  function RSF_Put_record(handle, rh, data_size) result(key) bind(C,name='RSF_Put_record')
+    import :: RSF_handle, C_INT64_T, C_SIZE_T, RSF_record_handle
+    implicit none
+    type(RSF_handle), intent(IN), value :: handle
+    type(RSF_record_handle), intent(IN), value :: rh
+    integer(C_SIZE_T), intent(IN), value :: data_size
+    integer(C_INT64_T) :: key
+  end function RSF_Put_record
 #else
 int64_t RSF_Put(RSF_handle h, uint32_t *meta, void *data, size_t data_size) ;
+int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
 
   function RSF_Get_meta(handle, key, metasize, datasize) result(p) bind(C,name='RSF_Get_meta')
     import :: RSF_handle, C_INT32_T, C_INT64_T, C_PTR
+    implicit none
     type(RSF_handle), intent(IN), value :: handle
     integer(C_INT64_T), intent(IN), value :: key
     integer(C_INT32_T), intent(OUT) :: metasize
@@ -170,6 +229,7 @@ int64_t RSF_Put(RSF_handle h, uint32_t *meta, void *data, size_t data_size) ;
 
   function RSF_Get_record_meta(handle, key, metasize, datasize) result(p) bind(C,name='RSF_Get_record_meta')
     import :: RSF_handle, C_INT32_T, C_INT64_T, C_PTR
+    implicit none
     type(RSF_handle), intent(IN), value :: handle
     integer(C_INT64_T), intent(IN), value :: key
     integer(C_INT32_T), intent(OUT) :: metasize
@@ -185,6 +245,7 @@ void *RSF_Get_record_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t
 #if defined(IN_FORTRAN_CODE)
   function RSF_Close_file(handle) result (status) bind(C,name='RSF_Close_file')
     import :: RSF_handle, C_INT32_T
+    implicit none
     type(RSF_handle), intent(IN), value :: handle
     integer(C_INT32_T) :: status
   end function RSF_Close_file
@@ -195,6 +256,7 @@ int32_t RSF_Close_file(RSF_handle h) ;
 #if defined(IN_FORTRAN_CODE)
   subroutine RSF_Dump(name) bind(C,name='RSF_Dump')
     import :: C_CHAR
+    implicit none
     character(C_CHAR), dimension(*), intent(IN) :: name
   end subroutine RSF_Dump
 #else
@@ -204,6 +266,7 @@ void RSF_Dump(char *name) ;
 #if defined(IN_FORTRAN_CODE)
   subroutine RSF_Dump_dir(handle) bind(C,name='RSF_Dump_dir')
     import :: RSF_handle, C_INT32_T
+    implicit none
     type(RSF_handle), intent(IN), value :: handle
   end subroutine RSF_Dump_dir
 #else
@@ -213,12 +276,35 @@ void RSF_Dump_dir(RSF_handle h) ;
 #if defined(IN_FORTRAN_CODE)
   function RSF_Valid_handle(handle) result (status) bind(C,name='RSF_Valid_handle')
     import :: RSF_handle, C_INT32_T
+    implicit none
     type(RSF_handle), intent(IN), value :: handle
     integer(C_INT32_T) :: status
   end function RSF_Valid_handle
 #else
 int32_t RSF_Valid_handle(RSF_handle h) ;
 #endif
+
+#if defined(IN_FORTRAN_CODE)
+! allocate a new record handle (Fortran)
+  function RSF_New_record_handle(handle, max_data) result(rh) bind(C,name='RSF_New_record')
+    import :: RSF_handle, C_INT64_T, RSF_record_handle
+    implicit none
+    type(RSF_handle), intent(IN), value :: handle
+    integer(C_INT64_T), intent(IN), value :: max_data
+    type(RSF_record_handle) :: rh
+  end function RSF_New_record_handle
+
+! free the space allocated to that record
+  subroutine RSF_Free_record_handle(rh) bind(C,name='RSF_Free_record')
+    import :: C_INT32_T, RSF_record_handle
+    implicit none
+    type(RSF_record_handle), intent(IN), value :: rh
+  end subroutine RSF_Free_record_handle
+#else
+RSF_record *RSF_New_record(RSF_handle h, size_t max_data) ;  // get pointer to a new record (C)
+void RSF_Free_record(RSF_record * rh) ;  // free the space allocated to that record
+#endif
+
 
 #if defined(IN_FORTRAN_CODE)
 end interface
