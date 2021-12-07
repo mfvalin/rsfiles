@@ -9,17 +9,26 @@ module rsf_mod
   integer, parameter :: RSF_seg1    = RSF_SEG1
   integer, parameter :: RSF_version = RSF_VERSION
 
-  interface RSF_Record_metadata
+! the generic interfaces that follow accept RSF_record or RSF_record_handle arguments
+! 1 suffixed procedures accept RSF_record
+! 2 suffixed procedures accept RSF_record_handle
+
+  interface RSF_Record_metadata             ! pointer to metadata
     module procedure RSF_Record_metadata1
     module procedure RSF_Record_metadata2
   end interface
 
-  interface RSF_Record_payload
+  interface RSF_Record_max_payload          ! max payload size in 32 bit units
+    module procedure RSF_Record_max_payload1
+    module procedure RSF_Record_max_payload2
+  end interface
+
+  interface RSF_Record_payload              ! pointer to payload
     module procedure RSF_Record_payload1
     module procedure RSF_Record_payload2
   end interface
 
-  interface RSF_Free_record
+  interface RSF_Free_record                 ! free a record allocated with RSF_New_record_handle
     module procedure RSF_Free_record1
     module procedure RSF_Free_record2
   end interface
@@ -45,6 +54,25 @@ module rsf_mod
     ! pointer to metadata array
     call C_F_POINTER(record%meta, meta, [record%meta_size])      ! meta_size is in 32 bit units
   end function RSF_Record_metadata2
+
+  function RSF_Record_max_payload1(r) result (s)   ! get max size of payload array from record
+    implicit none
+    type(RSF_record), intent(IN) :: r
+    integer(C_INT64_T) :: s
+
+    s = r%max_data / 4                             ! max_data is in bytes
+  end function RSF_Record_max_payload1
+
+  function RSF_Record_max_payload2(rh) result (s)   ! get pointer to payload array from record handle
+    implicit none
+    type(RSF_record_handle), intent(IN), value :: rh
+    integer(C_INT64_T) :: s
+    type(RSF_record), pointer :: record
+
+    call C_F_POINTER(rh%record, record)             ! handle -> record pointer
+    ! pointer to data payload array
+    s = record%max_data / 4                         ! max_data is in bytes
+  end function RSF_Record_max_payload2
 
   function RSF_Record_payload1(r) result (data)   ! get pointer to payload array from record
     implicit none

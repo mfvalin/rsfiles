@@ -1,4 +1,4 @@
-#if ! defined(IN_FORTRAN_CODE)
+#if 0
 /*
  * Copyright (C) 2021  Environnement et Changement climatique Canada
  *
@@ -38,11 +38,14 @@
   end type
 
   type, BIND(C) :: RSF_record         ! not a totally honest description
-    private
+    private                           ! MUST REFLECT C struct RSF_record (see below)
+    type(C_PTR) :: sor                ! pointer to start of record descriptor (not used by Fortran)
     type(C_PTR) :: meta               ! pointer to integer metadata array
     type(C_PTR) :: data               ! pointer to start of integer data array
+    type(C_PTR) :: eor                ! pointer to end of record descriptor (not used by Fortran)
     integer(C_INT64_T) :: meta_size   ! metadata size in 32 bit units
-    integer(C_INT64_T) :: data_size   ! data payload size in bytes
+    integer(C_INT64_T) :: data_size   ! data payload size in bytes (may remain 0 in unmanaged records)
+    integer(C_INT64_T) :: max_data    ! maximum data payload size in bytes
     ! dynamic data array follows, see C struct
   end type
 
@@ -71,11 +74,14 @@ typedef struct{   // this struct only contains a pointer to the actual full cont
 } RSF_handle ;
 
 typedef struct{
+  void     *sor ;      // start of record address ( RSF_record.d )
   uint32_t *meta ;     // pointer to metadata array
-  void *data ;         // pointer to start of data array
-  uint64_t meta_size;  // metadata size in uint32_t units
-  uint64_t data_size;  // data payload size in bytes
-  uint32_t d[] ;       // dynamic data array
+  void     *data ;     // pointer to start of data array
+  void     *eor ;      // end of record address ( (void *) RSF_record.d + max_data )
+  uint64_t meta_size ; // metadata size in uint32_t units
+  uint64_t data_size ; // actual data size in bytes (may remain 0 in unmanaged records)
+  uint64_t max_data ;  // maximum data payload size in bytes
+  uint8_t  d[] ;       // dynamic data array
 } RSF_record ;
 
 // typedef struct{   // this struct only contains a pointer to the actual composite record
@@ -144,15 +150,15 @@ int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mas
 
 #if defined(IN_FORTRAN_CODE)
 
-  function RSF_Get_new_record(handle, key) result(rh) bind(C,name='RSF_Get_new_record')
+  function RSF_Get_record(handle, key) result(rh) bind(C,name='RSF_Get_record')
     import :: RSF_handle, C_INT32_T, C_INT64_T, RSF_record_handle
     implicit none
     type(RSF_handle), intent(IN), value :: handle
     integer(C_INT64_T), intent(IN), value :: key
     type(RSF_record_handle) :: rh
-  end function RSF_Get_new_record
-
-  function RSF_Get_record(handle, key, record, size, meta, metasize, data, datasize) result(p) bind(C,name='RSF_Get_record')
+  end function RSF_Get_record
+#if 0
+  function RSF_Get_record_old(handle, key, record, size, meta, metasize, data, datasize) result(p) bind(C,name='RSF_Get_record_old')
     import :: RSF_handle, C_INT32_T, C_INT64_T, C_PTR
     implicit none
     type(RSF_handle), intent(IN), value :: handle
@@ -163,7 +169,7 @@ int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mas
     integer(C_INT64_T), intent(OUT) :: datasize
     type(C_PTR), intent(OUT) :: meta, data
     type(C_PTR) :: p
-  end function RSF_Get_record
+  end function RSF_Get_record_old
 
   function RSF_Record_meta(handle, record, metasize) result(p) bind(C,name='RSF_Record_meta')
     import :: RSF_handle, C_INT32_T, C_PTR
@@ -182,12 +188,13 @@ int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mas
     integer(C_INT64_T), intent(OUT) :: datasize
     type(C_PTR) :: p
   end function RSF_Record_data
+#endif
 #else
 
-RSF_record *RSF_Get_new_record(RSF_handle h, int64_t key) ;
-void *RSF_Get_record(RSF_handle h, int64_t key, void *record, uint64_t size, void **meta, int32_t *metasize, void **data, uint64_t *datasize) ;
-void *RSF_Record_meta(RSF_handle h, void *record, int32_t *metasize) ;
-void *RSF_Record_data(RSF_handle h, void *record, int64_t *datasize) ;
+RSF_record *RSF_Get_record(RSF_handle h, int64_t key) ;
+// void *RSF_Get_record_old(RSF_handle h, int64_t key, void *record, uint64_t size, void **meta, int32_t *metasize, void **data, uint64_t *datasize) ;
+// void *RSF_Record_meta(RSF_handle h, void *record, int32_t *metasize) ;
+// void *RSF_Record_data(RSF_handle h, void *record, int64_t *datasize) ;
 
 #endif
 
@@ -293,9 +300,64 @@ int32_t RSF_Valid_handle(RSF_handle h) ;
     implicit none
     type(RSF_record_handle), intent(IN), value :: rh
   end subroutine RSF_Free_record_handle
+
+! get free space in record
+  function RSF_Record_free_space(rh) result(s) bind(C,name='RSF_Record_free_space')
+    import :: RSF_record_handle, C_INT64_T
+    implicit none
+    type(RSF_record_handle), intent(IN), value :: rh
+    integer(C_INT64_T) :: s
+  end function RSF_Record_free_space
+
+! get max payload space in record
+  function RSF_Record_max_space(rh) result(s) bind(C,name='RSF_Record_max_space')
+    import :: RSF_record_handle, C_INT64_T
+    implicit none
+    type(RSF_record_handle), intent(IN), value :: rh
+    integer(C_INT64_T) :: s
+  end function RSF_Record_max_space
+
+! get pointer to payload in record
+  function RSF_Record_data(rh) result(p) bind(C,name='RSF_Record_data')
+    import :: RSF_record_handle, C_PTR
+    implicit none
+    type(RSF_record_handle), intent(IN), value :: rh
+    type(C_PTR) :: p
+  end function RSF_Record_data
+
+! get used payload space in record
+  function RSF_Record_data_size(rh) result(s) bind(C,name='RSF_Record_data_size')
+    import :: RSF_record_handle, C_INT64_T
+    implicit none
+    type(RSF_record_handle), intent(IN), value :: rh
+    integer(C_INT64_T) :: s
+  end function RSF_Record_data_size
+
+! get pointer to metadata in record
+  function RSF_Record_meta(rh) result(p) bind(C,name='RSF_Record_meta')
+    import :: RSF_record_handle, C_PTR
+    implicit none
+    type(RSF_record_handle), intent(IN), value :: rh
+    type(C_PTR) :: p
+  end function RSF_Record_meta
+
+! get metadata size in record
+  function RSF_Record_meta_size(rh) result(s) bind(C,name='RSF_Record_meta_size')
+    import :: RSF_record_handle, C_INT32_T
+    implicit none
+    type(RSF_record_handle), intent(IN), value :: rh
+    integer(C_INT32_T) :: s
+  end function RSF_Record_meta_size
+
 #else
 RSF_record *RSF_New_record(RSF_handle h, size_t max_data) ;  // get pointer to a new record (C)
-void RSF_Free_record(RSF_record * rh) ;  // free the space allocated to that record
+void RSF_Free_record(RSF_record * r) ;                       // free the space allocated to that record
+int64_t RSF_Record_free_space(RSF_record *r) ;               // space available for more data in record allocated by RSF_New_record
+int64_t RSF_Record_max_space(RSF_record *r) ;                // maximum data payload size in record allocated by RSF_New_record
+void *RSF_Record_data(RSF_record *r) ;                       // pointer to data payload in record allocated by RSF_New_record
+uint64_t RSF_Record_data_size(RSF_record *r) ;               // size of data payload in record allocated by RSF_New_record
+void *RSF_Record_meta(RSF_record *r) ;                       // pointer to metadata in record allocated by RSF_New_record
+uint32_t RSF_Record_meta_size(RSF_record *r) ;               // size of metadata in record allocated by RSF_New_record
 #endif
 
 
