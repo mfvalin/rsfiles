@@ -10,8 +10,13 @@ module rsf_mod
   integer, parameter :: RSF_version = RSF_VERSION
 
 ! the generic interfaces that follow accept RSF_record or RSF_record_handle arguments
-! 1 suffixed procedures accept RSF_record
-! 2 suffixed procedures accept RSF_record_handle
+! 1 suffixed procedures accept RSF_record (a pointer to RSF_record may be obtained from RSF_New_record)
+! 2 suffixed procedures accept RSF_record_handle (from RSF_New_record_handle)
+
+  interface RSF_New_record
+    module procedure RSF_New_record1
+    module procedure RSF_New_record2
+  end interface
 
   interface RSF_Record_metadata             ! pointer to metadata
     module procedure RSF_Record_metadata1
@@ -94,16 +99,29 @@ module rsf_mod
     call C_F_POINTER(record%data, data, [record%data_size / 4])  ! data_size is in bytes
   end function RSF_Record_payload2
 
-  function RSF_New_record(handle, max_data) result(r)
+  function RSF_New_record1(fh, max_data) result(r)      ! return a pointer to RSF_record type
     implicit none
-    type(RSF_handle), intent(IN), value :: handle
+    type(RSF_handle), intent(IN), value :: fh
     integer(C_INT64_T), intent(IN), value :: max_data
     type(RSF_record) ,pointer :: r
     type(RSF_record_handle) :: rh
 
-    rh = RSF_New_record_handle(handle, max_data)
+    rh = RSF_New_record_handle(fh, max_data, C_NULL_PTR, max_data)
     call C_F_POINTER(rh%record, r)                          ! handle -> record pointer
-  end function RSF_New_record
+  end function RSF_New_record1
+
+  function RSF_New_record2(fh, max_data, t, szt) result(r)  ! return a pointer to RSF_record type
+    implicit none
+    type(RSF_handle), intent(IN), value :: fh
+    integer(C_INT64_T), intent(IN), value :: max_data
+    type(C_PTR) :: t                                        ! user supplied space
+    integer(C_INT64_T), intent(IN), value :: szt            ! size in bytes of user supplied space
+    type(RSF_record) ,pointer :: r
+    type(RSF_record_handle) :: rh
+
+    rh = RSF_New_record_handle(fh, max_data, t, szt)
+    call C_F_POINTER(rh%record, r)                          ! handle -> record pointer
+  end function RSF_New_record2
 
   subroutine RSF_Free_record1(rh)
     implicit none

@@ -27,8 +27,8 @@ program test_rsf
   i0  = 0
   mode = RSF_RW
   meta_dim = META_SIZE
-  meta(0)         = int(Z"CAFEFADE")
-  meta(META_SIZE-1) = int(Z"DEABDEEF")
+  meta(0)           = shiftl(int(Z"CAFE"),16) + int(Z"FADE")  ! rigamarole because int(Z"CAFEFADE") is rejected by some compilers
+  meta(META_SIZE-1) = shiftl(int(Z"DEAD"),16) + int(Z"BEEF")
   appl = "DeMo"
   print *,"=========== file creation test 1 ==========="
   do k = 0, 3
@@ -110,7 +110,7 @@ program test_rsf
   print *,"=========== record buffer syntax test ==========="
   max_data = 4096
 
-  rh = RSF_New_record_handle(h, max_data)   ! record handle
+  rh = RSF_New_record_handle(h, max_data, C_NULL_PTR, max_data)   ! record handle
   mp => RSF_Record_metadata(rh)
   print *, "size of metadata mp  =",size(mp)
   dp => RSF_Record_payload(rh)

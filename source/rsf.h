@@ -38,7 +38,7 @@
   end type
 
   type, BIND(C) :: RSF_record         ! not a totally honest description
-    private                           ! MUST REFLECT C struct RSF_record (see below)
+    private                           ! MUST REFLECT EXACTLY C struct RSF_record (see below)
     type(C_PTR) :: sor                ! pointer to start of record descriptor (not used by Fortran)
     type(C_PTR) :: meta               ! pointer to integer metadata array
     type(C_PTR) :: data               ! pointer to start of integer data array
@@ -55,7 +55,7 @@
     !  type(RSF_record_handle)   :: h
     !  type(RSF_record), pointer :: r
     !  call C_F_POINTER(h%record, r)
-    !  r%meta, r%data, r%meta_size, r%data_size now accessible in module procedures
+    !  r%meta, r%data, r%meta_size, r%data_size, etc ... now accessible in module procedures
   end type
 #else
 
@@ -75,8 +75,8 @@ typedef struct{   // this struct only contains a pointer to the actual full cont
 
 typedef struct{
   void     *sor ;      // start of record address ( RSF_record.d )
-  uint32_t *meta ;     // pointer to metadata array
-  void     *data ;     // pointer to start of data array
+  uint32_t *meta ;     // pointer to metadata array ( sor - sizeof(sor) )
+  void     *data ;     // pointer to start of data payload array
   void     *eor ;      // end of record address ( (void *) RSF_record.d + max_data )
   uint64_t meta_size ; // metadata size in uint32_t units
   uint64_t data_size ; // actual data size in bytes (may remain 0 in unmanaged records)
@@ -286,11 +286,12 @@ int32_t RSF_Valid_handle(RSF_handle h) ;
 
 #if defined(IN_FORTRAN_CODE)
 ! allocate a new record handle (Fortran)
-  function RSF_New_record_handle(handle, max_data) result(rh) bind(C,name='RSF_New_record')
-    import :: RSF_handle, C_INT64_T, RSF_record_handle
+  function RSF_New_record_handle(handle, max_data, t, szt) result(rh) bind(C,name='RSF_New_record')
+    import :: RSF_handle, C_INT64_T, RSF_record_handle, C_PTR
     implicit none
     type(RSF_handle), intent(IN), value :: handle
-    integer(C_INT64_T), intent(IN), value :: max_data
+    type(C_PTR), value :: t
+    integer(C_INT64_T), intent(IN), value :: max_data, szt
     type(RSF_record_handle) :: rh
   end function RSF_New_record_handle
 
@@ -350,7 +351,8 @@ int32_t RSF_Valid_handle(RSF_handle h) ;
   end function RSF_Record_meta_size
 
 #else
-RSF_record *RSF_New_record(RSF_handle h, size_t max_data) ;  // get pointer to a new record (C)
+
+RSF_record *RSF_New_record(RSF_handle h, size_t max_data, void *t, size_t szt) ;  // create pointer to a new allocated record (C)
 void RSF_Free_record(RSF_record * r) ;                       // free the space allocated to that record
 int64_t RSF_Record_free_space(RSF_record *r) ;               // space available for more data in record allocated by RSF_New_record
 int64_t RSF_Record_max_space(RSF_record *r) ;                // maximum data payload size in record allocated by RSF_New_record
@@ -358,6 +360,7 @@ void *RSF_Record_data(RSF_record *r) ;                       // pointer to data 
 uint64_t RSF_Record_data_size(RSF_record *r) ;               // size of data payload in record allocated by RSF_New_record
 void *RSF_Record_meta(RSF_record *r) ;                       // pointer to metadata in record allocated by RSF_New_record
 uint32_t RSF_Record_meta_size(RSF_record *r) ;               // size of metadata in record allocated by RSF_New_record
+
 #endif
 
 
