@@ -462,12 +462,14 @@ int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n
 // is this a vlid data record structure ?
 int32_t RSF_Valid_record(RSF_record *r){
   void *p = (void *) r ;
+  int64_t rsz ;
   if( r->sor != (void *) r->d )                                             return 1 ; // sor is wrong
   if( (r->sor + sizeof(start_of_record)) != (void *) r->meta)               return 2 ; // meta - sor wrong
   if( (r->data - (void *) r->meta) != sizeof(int32_t) * r->meta_size )      return 3 ; // meta_size inconsistent
-// printf("max_data = %ld, rsz = %ld, sor = %p, meta = %p, data = %p, eor max = %p\n",r->max_data,r->rsz,r->sor,r->meta,r->data,r->eor) ;
-// printf("&r->d[r->max_data] = %p, eor = %p\n",(void *)&r->d[r->max_data], ( p + r->rsz - sizeof(end_of_record) ));
-  if( (void *)&r->d[r->max_data] > ( p + r->rsz - sizeof(end_of_record) ) ) return 4 ; // data goes beyond EOR
+  rsz = (r->rsz >= 0) ? r->rsz : -(r->rsz)  ;   // use absolute value
+// printf("max_data = %ld, rsz = %ld, sor = %p, meta = %p, data = %p, eor max = %p\n",r->max_data,rsz,r->sor,r->meta,r->data,r->eor) ;
+// printf("&r->d[r->max_data] = %p, eor = %p\n",(void *)&r->d[r->max_data], ( p + rsz - sizeof(end_of_record) ));
+  if( (void *)&r->d[r->max_data] > ( p + rsz - sizeof(end_of_record) ) )    return 4 ; // data goes beyond EOR
   return 0 ;
 }
 
@@ -481,6 +483,7 @@ int32_t RSF_Valid_record(RSF_record *r){
 //
 // this record is reusable as long as the allocated size can accomodate max_data data bytes of payload
 // this is why the allocated size is kept in the struct
+// if the szt field is negative, it was not allocated by RSF_New_record
 RSF_record *RSF_New_record(RSF_handle h, size_t max_data, void *t, size_t szt){
   RSF_File *fp = (RSF_File *) h.p ;
   size_t record_size ;
@@ -497,18 +500,22 @@ RSF_record *RSF_New_record(RSF_handle h, size_t max_data, void *t, size_t szt){
                 sizeof(end_of_record) ;                 // end of record marker
   if(t != NULL){                                        // caller supplied space
     p = t ;                                             // use caller supplied space
+    r = (RSF_record *) p ;                              // pointer to record structure
     if(szt == 0) {                                      // passing a previously allocated record
-      r = (RSF_record *) p ;                            // record structure
       if( RSF_Valid_record(r) != 0 ) return NULL ;      // inconsistent info in structure
-      szt = r->rsz ;                                    // get memory size from existing record
+      szt = (r->rsz >= 0) ? r->rsz : -(r->rsz) ;        // get memory size from existing record
+    }else{
+      if(szt < 0) return NULL ;                         // invalid size for caller supplied space
+      r->rsz = -szt ;                                   // caller allocated space, szt stored as negative value
     }
     if(szt < record_size) return NULL ;                 // not enough space
   }else{
     p = malloc( record_size + sizeof(RSF_record) ) ;    // add overhead size to allocated record size
+    r = (RSF_record *) p ;                              // pointer to record structure
     if(p == NULL) return NULL ;                         // malloc failed 
+    r->rsz = record_size + sizeof(RSF_record) ;         // allocated memory size
   }
 
-  r = (RSF_record *) p ;      // pointer to record structure
   p += sizeof(RSF_record) ;   // skip overhead. p now points to data record part (SOR)
 
   sor = (start_of_record *) p ;
@@ -524,7 +531,7 @@ RSF_record *RSF_New_record(RSF_handle h, size_t max_data, void *t, size_t szt){
   r->meta_size = fp->meta_dim ;                      // metadata size in 32 bit units
   r->data_size = 0 ;                                 // no data in record yet
   r->max_data  = max_data ;                          // max data payload for this record
-  r->rsz       = record_size + sizeof(RSF_record) ;  // allocated memory size
+  // r-> rsz already set, > 0 if allocated by RSF_New_record, < 0 otherwise
 
   return r ; 
 }
@@ -544,7 +551,8 @@ int64_t RSF_Record_add_data(RSF_record *r, void *data, size_t data_size){
 
 // free dynamic record allocated by RSF_New_record
 void RSF_Free_record(RSF_record *r){
-  return free(r) ;
+  if(r->rsz > 0) free(r) ;    // only if allocated by RSF_New_record
+  return ;
 }
 
 // space available for more data in record allocated by RSF_New_record
@@ -554,7 +562,7 @@ int64_t RSF_Record_free_space(RSF_record *r){  // asssuming record payload is "m
 
 // allocated size of record allocated by RSF_New_record
 int64_t RSF_Record_allocated(RSF_record *r){  // asssuming record payload is "managed"
-  return r->rsz ;
+  return (r->rsz >= 0) ? r->rsz : -(r->rsz) ;
 }
 
 // maximum data payload size in record allocated by RSF_New_record
@@ -581,37 +589,6 @@ void *RSF_Record_meta(RSF_record *r){
 uint32_t RSF_Record_meta_size(RSF_record *r){
   return r->meta_size ;
 }
-
-#if 0
-// allocate a data record, ready to be written to disk
-// user MUST free the allocated space after use
-void *RSF_New_data_record(RSF_handle h, uint32_t **meta, uint32_t **data, size_t max_data){
-  RSF_File *fp = (RSF_File *) h.p ;
-  uint8_t *p ;
-  start_of_record *sor ;
-  end_of_record   *eor ;
-  size_t record_size ;
-
-  if( ! RSF_Valid_file(fp) ) return NULL ;
-
-  record_size = sizeof(start_of_record) + sizeof(uint32_t) *  fp->meta_dim + max_data + sizeof(end_of_record) ;
-  p = malloc(record_size) ;
-  *meta = NULL ;
-  *data = NULL ;
-
-  if(p != NULL){
-    sor = (start_of_record *) p ;
-//     sor->zr = ZR_SOR ; sor->rt = RT_DATA ; sor->rlx = record_size >> 32 ; sor->rl = record_size & 0xFFFFFFFFu ;
-    sor->zr = ZR_SOR ; sor->rt = RT_DATA ; sor->rlm = fp->meta_dim ; RSF_64_to_32(sor->rl, record_size) ;
-    *meta = (uint32_t *) p + sizeof(start_of_record) ;
-    *data = (uint32_t *) meta + sizeof(uint32_t) *  fp->meta_dim ;
-    eor = (end_of_record *) p + record_size - sizeof(end_of_record) ;
-//     eor->zr = ZR_EOR ; eor->rt = RT_DATA ; eor->rlx = record_size >> 32 ; eor->rl = record_size & 0xFFFFFFFFu ;
-    eor->zr = ZR_EOR ; eor->rt = RT_DATA ; eor->rlm = fp->meta_dim ; RSF_64_to_32(eor->rl, record_size) ;
-  }
-  return p ;
-}
-#endif
 
 // adjust data size for record created with RSF_New_record
 size_t RSF_Adjust_data_record(RSF_handle h, uint8_t *record, size_t data_size){
@@ -779,81 +756,6 @@ RSF_record *RSF_Get_record(RSF_handle h, int64_t key){
 
   return record ;
 }
-#if 0
-// key from RSF_Lookup
-// returns a  pointer to record blob (NULL in case or error)
-// address and size of data and metadata returned if appropriate pointers are not NULL
-// if record is NULL, a record buffer of appropriate dimension will be allocated, and size will be ignored
-// it is up to the caller to free that space
-// if record is not NULL, size must be large enough to accomodate record
-// in case of error, the function returns NULL, datasize, metasize, data, and meta are IGNORED
-void *RSF_Get_record_old(RSF_handle h, int64_t key, void *record, uint64_t size, void **meta, int32_t *metasize, void **data, uint64_t *datasize){
-  RSF_File *fp = (RSF_File *) h.p ;
-  int32_t indx, page ;
-  uint64_t recsize, wa ;
-  off_t offset ;
-  int64_t payload ;
-  start_of_record *sor ;
-
-  if( ! RSF_Valid_file(fp) ) return NULL ;   // something not O.K. with fp
-
-  indx = key & 0x7FFFFFFF ;               // get record numer from key
-  indx-- ;                                // set indx to origin 0 ;
-  page  = indx >> DIR_PAGE_SHFT ;         // directory page number
-  indx &= DIR_PAGE_MASK ;                 // offset in directory page
-
-  recsize = (fp->pagetable[page])->warl[indx].rl ;  // record size
-  wa = (fp->pagetable[page])->warl[indx].wa ;       // record position in file
-  if(record == NULL) {                              // allocate record buffer if none supplied
-    record = malloc(recsize) ;
-    size   = recsize ;                              // size is O.K. by definition
-  }
-  if(size < recsize) return NULL ;                  // supplied buffer too small
-
-  if(record){                                       // allocate successful
-    offset = lseek(fp->fd, offset = wa, SEEK_SET) ; // start of record
-    read(fp->fd, record, recsize) ;                 // read record
-    fp->cur_pos = offset + recsize ;                // current position is after record
-    fp->last_op = OP_READ ;                         // last operation is read
-
-    if(metasize) *metasize = fp->meta_dim ;                 // size of metadata
-    if(meta) *meta = record + sizeof(start_of_record) ;     // address of metadata
-
-    sor = (start_of_record *) record ;
-    payload = RSF_32_to_64(sor->rl) ;
-    payload = payload - sizeof(start_of_record) - fp->meta_dim * sizeof(uint32_t) - sizeof(end_of_record) ;
-    if(datasize) *datasize = payload ;                      // size of data payload
-    if(data) *data = record + sizeof(start_of_record) + fp->meta_dim * sizeof(uint32_t) ;  // address of data payload
-  }
-  return record ;
-}
-#endif
-// void *RSF_Record_meta(RSF_handle h, void *record, int32_t *metasize){
-//   RSF_File *fp = (RSF_File *) h.p ;
-// 
-//   *metasize = 0 ;
-//   if( ! RSF_Valid_file(fp) ) return NULL ;      // something not O.K. with fp
-// 
-//   *metasize = fp->meta_dim ;
-//   return record + sizeof(start_of_record) ;     // position of metadata in record
-// }
-
-// void *RSF_Record_data(RSF_handle h, void *record, int64_t *datasize){
-//   RSF_File *fp = (RSF_File *) h.p ;
-//   int64_t payload ;
-//   start_of_record *sor = (start_of_record *) record ;
-// 
-//   *datasize = 0 ;
-//   if( ! RSF_Valid_file(fp) ) return NULL ;      // something not O.K. with fp
-// 
-// //   payload = sor->rlx ; payload <<= 32 ; payload += sor->rl ;
-//   payload = RSF_32_to_64(sor->rl) ;
-//   // payload size = record size - sor size - metadata size - eor size
-//   payload = payload - sizeof(start_of_record) - fp->meta_dim * sizeof(uint32_t) - sizeof(end_of_record) ;
-//   *datasize = payload ;
-//   // position of data in record, after sor and metadata
-//   return record + sizeof(start_of_record) + fp->meta_dim * sizeof(uint32_t) ;
-// }
 
 // get pointer to metadata associated with record poited to by key from RSF_Lookup
 // return pointer to metadata (NULL in case or error)
