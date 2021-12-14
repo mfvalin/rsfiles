@@ -111,19 +111,21 @@ program test_rsf
   max_data = 4096
 
   rh = RSF_New_record_handle(h, max_data, C_NULL_PTR, max_data)   ! record handle
+  status = RSF_Valid_record(rh)
   mp => RSF_Record_metadata(rh)
-  print *, "size of metadata mp  =",size(mp)
+  print *, "size of metadata mp  =",size(mp),' valid =',status
   dp => RSF_Record_payload(rh)
-  print *, "size of payload dp   =",size(dp)
+  print *, "size of payload dp   =",size(dp),' alloc =',RSF_Record_allocsize(rh),' maxddata =',max_data
   call RSF_Free_record(rh)
   print *, "record handle memory freed"
 
   rp => RSF_New_record(h, max_data)   ! pointer to record
+  status = RSF_Valid_record(rp)
 !   print *, rp%meta_size     ! this line MUST fail to compile (referencing a private component)
-  mp2 => RSF_Record_metadata(rh)
-  print *, "size of metadata mp2 =",size(mp2)
-  dp2 => RSF_Record_payload(rh)
-  print *, "size of payload  dp2 =",size(dp2)
+  mp2 => RSF_Record_metadata(rp)
+  print *, "size of metadata mp2 =",size(mp2),' valid =',status
+  dp2 => RSF_Record_payload(rp)
+  print *, "size of payload  dp2 =",size(dp2),' alloc =',RSF_Record_allocsize(rp),' maxddata =',max_data
   call RSF_Free_record(rp)
   print *, "record memory freed"
   print *,"=========== close file ==========="
@@ -131,7 +133,7 @@ program test_rsf
 
   print *,"=========== dump file test ==========="
   call RSF_Dump("demo0.rsf"//achar(0))
-1 format(A1,30Z9.8)
+! 1 format(A1,30Z9.8)
 2 format(30Z13.12)
 3 format(30Z9.8)
 end program

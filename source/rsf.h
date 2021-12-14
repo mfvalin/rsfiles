@@ -46,6 +46,7 @@
     integer(C_INT64_T) :: meta_size   ! metadata size in 32 bit units
     integer(C_INT64_T) :: data_size   ! data payload size in bytes (may remain 0 in unmanaged records)
     integer(C_INT64_T) :: max_data    ! maximum data payload size in bytes
+    integer(C_INT64_T) :: rsz         ! allocated size of RSF_record
     ! dynamic data array follows, see C struct
   end type
 
@@ -81,6 +82,7 @@ typedef struct{
   uint64_t meta_size ; // metadata size in uint32_t units
   uint64_t data_size ; // actual data size in bytes (may remain 0 in unmanaged records)
   uint64_t max_data ;  // maximum data payload size in bytes
+  int64_t rsz ;        // allocated size of RSF_record
   uint8_t  d[] ;       // dynamic data array
 } RSF_record ;
 
@@ -310,6 +312,14 @@ int32_t RSF_Valid_handle(RSF_handle h) ;
     integer(C_INT64_T) :: s
   end function RSF_Record_free_space
 
+! allocated size of record
+  function RSF_Record_allocated(rh) result(s) bind(C,name='RSF_Record_allocated')
+    import :: RSF_record_handle, C_INT64_T
+    implicit none
+    type(RSF_record_handle), intent(IN), value :: rh
+    integer(C_INT64_T) :: s
+  end function RSF_Record_allocated
+
 ! get max payload space in record
   function RSF_Record_max_space(rh) result(s) bind(C,name='RSF_Record_max_space')
     import :: RSF_record_handle, C_INT64_T
@@ -350,11 +360,20 @@ int32_t RSF_Valid_handle(RSF_handle h) ;
     integer(C_INT32_T) :: s
   end function RSF_Record_meta_size
 
+! does this look like a valid record ?
+  function RSF_Valid_record_handle(rh) result(s) bind(C,name='RSF_Valid_record')
+    import :: RSF_record_handle, C_INT32_T
+    implicit none
+    type(RSF_record_handle), intent(IN), value :: rh
+    integer(C_INT32_T) :: s
+  end function RSF_Valid_record_handle
 #else
 
 RSF_record *RSF_New_record(RSF_handle h, size_t max_data, void *t, size_t szt) ;  // create pointer to a new allocated record (C)
 void RSF_Free_record(RSF_record * r) ;                       // free the space allocated to that record
+int32_t RSF_Valid_record(RSF_record *r) ;                    // does this look like a valid record ?
 int64_t RSF_Record_free_space(RSF_record *r) ;               // space available for more data in record allocated by RSF_New_record
+int64_t RSF_Record_allocated(RSF_record *r) ;                // allocated size of record allocated by RSF_New_record
 int64_t RSF_Record_max_space(RSF_record *r) ;                // maximum data payload size in record allocated by RSF_New_record
 void *RSF_Record_data(RSF_record *r) ;                       // pointer to data payload in record allocated by RSF_New_record
 uint64_t RSF_Record_data_size(RSF_record *r) ;               // size of data payload in record allocated by RSF_New_record

@@ -1,11 +1,13 @@
 CC = gcc
+CFLAGS =
 FC = gfortran
+FCFLAGS =
 
 NP = 4
 
 OPT  = -O2
-OPTC = -O2
-OPTF = -O2
+OPTC = -O2 $(CFLAGS)
+OPTF = -O2 $(FCFLAGS)
 
 librsf.a: rsf.c rsf_mod.F90 rsf.h
 	${CC} ${OPTC} -c -I. rsf.c
