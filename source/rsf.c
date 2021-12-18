@@ -673,18 +673,14 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, void *data, size_t data_size)
     nc = write(fp->fd, record->data, data_size) ;                           // write to disk
     // SHOULD WE FREE THE PRE ALLOCATED RECORD (data) HERE ? (probably not)
   }else{
-//     rl  = record_size & 0xFFFFFFFFu ;                // lower 32 bits
-//     rlx = (record_size >> 32) & 0xFFFF ;             // upper 16 bits
-//     sor.rlx = rlx ;  sor.rl  = rl  ;                           //   start_of_record
     sor.rlm = fp->meta_dim ;
     RSF_64_to_32(sor.rl, record_size) ;
-    nc = write(fp->fd, &sor, sizeof(start_of_record)) ;
+    nc = write(fp->fd, &sor, sizeof(start_of_record)) ;             // start of record
     nc = write(fp->fd, meta, fp->meta_dim * sizeof(uint32_t)) ;     // record metadata
     nc = write(fp->fd, data, data_size) ;                           // record data
-//     eor.rlx = rlx ;  eor.rl  = rl ;                            // end_of_record
     eor.rlm = fp->meta_dim ;
     RSF_64_to_32(eor.rl, record_size) ;
-    nc = write(fp->fd, &eor, sizeof(end_of_record)) ;
+    nc = write(fp->fd, &eor, sizeof(end_of_record)) ;               // end_of_record
   }
 
   // update directory in memory
@@ -917,7 +913,7 @@ RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *app
       size_last2 = RSF_32_to_64(sos.seg) ;
       dir_last2  = RSF_32_to_64(sos.dir) ;
       if(sos.head.rt != RT_SOS || 
-        sos.head.zr != 0 || 
+        sos.head.zr != ZR_SOR || 
         size_last2 != size_last ||
         dir_last2  != dir_last ){   // inconsistent SOS/EOS pair
         goto ERROR ;
@@ -955,6 +951,7 @@ RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *app
   return handle ;
 
 ERROR:
+// fprintf(stderr,"RSF_Open_file: ERROR\n");
   if(fp->name != NULL) free(fp->name) ;
   free(fp) ;
   return handle ;

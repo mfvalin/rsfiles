@@ -43,7 +43,7 @@
 #define RT_EOS     4
 #define RT_DEL  0x80
 
-#define ZR_SOR     0
+#define ZR_SOR  0XF0
 #define ZR_EOR  0xFF
 
 #define RL_SOR sizeof(start_of_record)
@@ -66,15 +66,19 @@ static inline void RSF_64_to_32(uint32_t u32[2], uint64_t u64){
 }
 
 //    structure of a record (array of 32 bit items)
-//      ZR    RLM    RT   RL[0]   RL[1]                               RL[0]   RL[1]   ZR    RLM    RT
-//    +----+-------+----+-------+-------+-----                 -----+-------+-------+----+-------+----+
-//    |    |       |    |       |       |          DATA             |       |       |    |       |    |
-//    +----+-------+----+-------+-------+-----                 -----+-------+-------+----+-------+----+
-//      8     16     8     32      32                                  32      32      8    16     8   (# of bits)
-//    <--------------------------------  RL[0] * 2**32 + RL[1] bytes  -------------------------------->
+//      ZR    RLM    RT   RL[0]   RL[1]                                       RL[0]   RL[1]   ZR    RLM    RT
+//    +----+-------+----+-------+-------+----------+------------------------+-------+-------+----+-------+----+
+//    |    |       |    |       |       | METADATA |       DATA             |       |       |    |       |    |
+//    +----+-------+----+-------+-------+----------+------------------------+-------+-------+----+-------+----+
+//      8     16     8     32      32     RLM x 32                             32      32      8    16     8   (# of bits)
+//    <------------------------------------  RL[0] * 2**32 + RL[1] bytes  ------------------------------------>
+//  ZR    : marker
+//  RLM   : length of metadata in 32 bit units
+//  RT    : record type
+//  RL    : record length = RL[0] * 2**32 + RL[1] bytes (ALWAYS a multiple of 4 bytes)
 
 typedef struct {                   // record header
-  uint32_t rt:8, rlm:16, zr:8 ;    // ZR_SOR, metadata length, record type
+  uint32_t rt:8, rlm:16, zr:8 ;    // ZR_SOR, metadata length (32 bit units), record type
   uint32_t rl[2] ;                 // upper[0], lower[1] 32 bits of record length (bytes)
 } start_of_record ;
 
@@ -86,14 +90,13 @@ static inline uint64_t RSF_Rl_sor(start_of_record sor, int rt){
   uint64_t rl ;
   if(sor.zr != ZR_SOR ) return 0 ;               // invalid sor
   if(sor.rt != rt && sor.rt != 0 ) return 0 ;    // invalid sor
-//   rl = sor.rlx ; rl <<= 32 ; rl += sor.rl ;      // record length
   rl = RSF_32_to_64(sor.rl) ;                    // record length
   return rl ;
 }
 
 typedef struct {                   // record trailer
   uint32_t rl[2] ;                 // upper[0], lower[1] 32 bits of record length
-  uint32_t rt:8, rlm:16, zr:8 ;    // ZR_EOR, metadata length, record type
+  uint32_t rt:8, rlm:16, zr:8 ;    // ZR_EOR, metadata length (32 bit units), record type
 } end_of_record ;
 
 #define EOR {{0, 0}, RT_DATA, 0,ZR_EOR }

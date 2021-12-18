@@ -43,7 +43,7 @@
     type(C_PTR) :: meta               ! pointer to integer metadata array
     type(C_PTR) :: data               ! pointer to start of integer data array
     type(C_PTR) :: eor                ! pointer to end of record descriptor (not used by Fortran)
-    integer(C_INT64_T) :: meta_size   ! metadata size in 32 bit units
+    integer(C_INT64_T) :: meta_size   ! metadata size in 32 bit units (max 0xFFFF)
     integer(C_INT64_T) :: data_size   ! data payload size in bytes (may remain 0 in unmanaged records)
     integer(C_INT64_T) :: max_data    ! maximum data payload size in bytes
     integer(C_INT64_T) :: rsz         ! allocated size of RSF_record
@@ -79,7 +79,7 @@ typedef struct{
   uint32_t *meta ;     // pointer to metadata array ( sor - sizeof(sor) )
   void     *data ;     // pointer to start of data payload array
   void     *eor ;      // end of record address ( (void *) RSF_record.d + max_data )
-  uint64_t meta_size ; // metadata size in uint32_t units
+  uint64_t meta_size ; // metadata size in uint32_t units (max 0xFFFF)
   uint64_t data_size ; // actual data size in bytes (may remain 0 in unmanaged records)
   uint64_t max_data ;  // maximum data payload size in bytes
   int64_t rsz ;        // allocated size of RSF_record
@@ -116,10 +116,8 @@ interface
     integer(C_INT32_T) :: status
   end function RSF_Base_match
 #else
-
-int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n) ;
-int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n) ;  // ignores mask
-
+  int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n) ;
+  int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n) ;  // ignores mask
 #endif
 
 #if defined(IN_FORTRAN_CODE)
@@ -134,7 +132,7 @@ int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n
     type(RSF_handle) :: handle
   end function RSF_Open_file
 #else
-RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *appl, int64_t *segsize);
+  RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *appl, int64_t *segsize);
 #endif
 
 #if defined(IN_FORTRAN_CODE)
@@ -147,11 +145,10 @@ RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *app
     integer(C_INT64_T) :: key
   end function RSF_Lookup
 #else
-int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mask) ;
+  int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mask) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
-
   function RSF_Get_record(handle, key) result(rh) bind(C,name='RSF_Get_record')
     import :: RSF_handle, C_INT32_T, C_INT64_T, RSF_record_handle
     implicit none
@@ -159,51 +156,14 @@ int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mas
     integer(C_INT64_T), intent(IN), value :: key
     type(RSF_record_handle) :: rh
   end function RSF_Get_record
-#if 0
-  function RSF_Get_record_old(handle, key, record, size, meta, metasize, data, datasize) result(p) bind(C,name='RSF_Get_record_old')
-    import :: RSF_handle, C_INT32_T, C_INT64_T, C_PTR
-    implicit none
-    type(RSF_handle), intent(IN), value :: handle
-    integer(C_INT64_T), intent(IN), value :: key
-    type(C_PTR), intent(IN), value :: record
-    integer(C_INT64_T), intent(IN), value :: size
-    integer(C_INT32_T), intent(OUT) :: metasize
-    integer(C_INT64_T), intent(OUT) :: datasize
-    type(C_PTR), intent(OUT) :: meta, data
-    type(C_PTR) :: p
-  end function RSF_Get_record_old
-
-  function RSF_Record_meta(handle, record, metasize) result(p) bind(C,name='RSF_Record_meta')
-    import :: RSF_handle, C_INT32_T, C_PTR
-    implicit none
-    type(RSF_handle), intent(IN), value :: handle
-    type(C_PTR), intent(IN), value :: record
-    integer(C_INT32_T), intent(OUT) :: metasize
-    type(C_PTR) :: p
-  end function RSF_Record_meta
-
-  function RSF_Record_data(handle, record, datasize) result(p) bind(C,name='RSF_Record_data')
-    import :: RSF_handle, C_INT32_T, C_PTR, C_INT64_T
-    implicit none
-    type(RSF_handle), intent(IN), value :: handle
-    type(C_PTR), intent(IN), value :: record
-    integer(C_INT64_T), intent(OUT) :: datasize
-    type(C_PTR) :: p
-  end function RSF_Record_data
-#endif
 #else
-
-RSF_record *RSF_Get_record(RSF_handle h, int64_t key) ;
-// void *RSF_Get_record_old(RSF_handle h, int64_t key, void *record, uint64_t size, void **meta, int32_t *metasize, void **data, uint64_t *datasize) ;
-// void *RSF_Record_meta(RSF_handle h, void *record, int32_t *metasize) ;
-// void *RSF_Record_data(RSF_handle h, void *record, int64_t *datasize) ;
-
+  RSF_record *RSF_Get_record(RSF_handle h, int64_t key) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
   end interface
 
-  interface RSF_Put   ! generic put
+  interface RSF_Put   ! generic put interface
   function RSF_Put_data(handle, meta, data, data_size) result(key) bind(C,name='RSF_Put_data')
     import :: RSF_handle, C_INT32_T, C_PTR, C_SIZE_T, C_INT64_T
     implicit none
@@ -226,8 +186,8 @@ RSF_record *RSF_Get_record(RSF_handle h, int64_t key) ;
 
   interface
 #else
-int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, void *data, size_t data_size) ;
-int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
+  int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, void *data, size_t data_size) ;
+  int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
@@ -241,7 +201,7 @@ int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
     type(C_PTR) :: p
   end function RSF_Get_record_meta
 #else
-void *RSF_Get_record_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize) ;
+  void *RSF_Get_record_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t *datasize) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
@@ -252,7 +212,7 @@ void *RSF_Get_record_meta(RSF_handle h, int64_t key, int32_t *metasize, uint64_t
     integer(C_INT32_T) :: status
   end function RSF_Close_file
 #else
-int32_t RSF_Close_file(RSF_handle h) ;
+  int32_t RSF_Close_file(RSF_handle h) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
@@ -262,7 +222,7 @@ int32_t RSF_Close_file(RSF_handle h) ;
     character(C_CHAR), dimension(*), intent(IN) :: name
   end subroutine RSF_Dump
 #else
-void RSF_Dump(char *name) ;
+  void RSF_Dump(char *name) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
@@ -272,7 +232,7 @@ void RSF_Dump(char *name) ;
     type(RSF_handle), intent(IN), value :: handle
   end subroutine RSF_Dump_dir
 #else
-void RSF_Dump_dir(RSF_handle h) ;
+  void RSF_Dump_dir(RSF_handle h) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
@@ -283,7 +243,7 @@ void RSF_Dump_dir(RSF_handle h) ;
     integer(C_INT32_T) :: status
   end function RSF_Valid_handle
 #else
-int32_t RSF_Valid_handle(RSF_handle h) ;
+  int32_t RSF_Valid_handle(RSF_handle h) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
@@ -368,18 +328,16 @@ int32_t RSF_Valid_handle(RSF_handle h) ;
     integer(C_INT32_T) :: s
   end function RSF_Valid_record_handle
 #else
-
-RSF_record *RSF_New_record(RSF_handle h, size_t max_data, void *t, size_t szt) ;  // create pointer to a new allocated record (C)
-void RSF_Free_record(RSF_record * r) ;                       // free the space allocated to that record
-int32_t RSF_Valid_record(RSF_record *r) ;                    // does this look like a valid record ?
-int64_t RSF_Record_free_space(RSF_record *r) ;               // space available for more data in record allocated by RSF_New_record
-int64_t RSF_Record_allocated(RSF_record *r) ;                // allocated size of record allocated by RSF_New_record
-int64_t RSF_Record_max_space(RSF_record *r) ;                // maximum data payload size in record allocated by RSF_New_record
-void *RSF_Record_data(RSF_record *r) ;                       // pointer to data payload in record allocated by RSF_New_record
-uint64_t RSF_Record_data_size(RSF_record *r) ;               // size of data payload in record allocated by RSF_New_record
-void *RSF_Record_meta(RSF_record *r) ;                       // pointer to metadata in record allocated by RSF_New_record
-uint32_t RSF_Record_meta_size(RSF_record *r) ;               // size of metadata in record allocated by RSF_New_record
-
+  RSF_record *RSF_New_record(RSF_handle h, size_t max_data, void *t, size_t szt) ;  // create pointer to a new allocated record (C)
+  void RSF_Free_record(RSF_record * r) ;                       // free the space allocated to that record
+  int32_t RSF_Valid_record(RSF_record *r) ;                    // does this look like a valid record ?
+  int64_t RSF_Record_free_space(RSF_record *r) ;               // space available for more data in record allocated by RSF_New_record
+  int64_t RSF_Record_allocated(RSF_record *r) ;                // allocated size of record allocated by RSF_New_record
+  int64_t RSF_Record_max_space(RSF_record *r) ;                // maximum data payload size in record allocated by RSF_New_record
+  void *RSF_Record_data(RSF_record *r) ;                       // pointer to data payload in record allocated by RSF_New_record
+  uint64_t RSF_Record_data_size(RSF_record *r) ;               // size of data payload in record allocated by RSF_New_record
+  void *RSF_Record_meta(RSF_record *r) ;                       // pointer to metadata in record allocated by RSF_New_record
+  uint32_t RSF_Record_meta_size(RSF_record *r) ;               // size of metadata in record allocated by RSF_New_record
 #endif
 
 
