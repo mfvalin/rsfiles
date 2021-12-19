@@ -315,6 +315,51 @@ int the_test(int argc, char **argv){
 }
 #endif
 
+#if defined(TEST4)
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <mpi.h>
+
+int the_test(int argc, char **argv){
+  int my_rank, nprocs ;
+  int fd , i ;
+  uint32_t buffer[1024*1024] ;
+  off_t pos ;
+  ssize_t nc = 0 ;
+  int nrecords ;
+  double t0, t1 ;
+
+  MPI_Init(&argc, &argv) ;
+  system("hostname");
+  MPI_Comm_rank(MPI_COMM_WORLD, &my_rank) ;
+  MPI_Comm_size(MPI_COMM_WORLD, &nprocs) ;
+  for(i=0 ; i<sizeof(buffer)/4 ; i++) buffer[i] = i*3 ;
+  MPI_Barrier(MPI_COMM_WORLD) ;
+  t0 = MPI_Wtime() ;
+  nrecords = atoi(argv[2]) ;
+  fd = open(argv[1], O_RDWR+O_CREAT, 0777) ;
+  if(fd > 0) {
+   pos = my_rank * sizeof(buffer) * nrecords ;
+   lseek(fd, pos, SEEK_SET) ;
+   for(i=0 ; i<nrecords-1 ; i++){
+     nc += write(fd, buffer, sizeof(buffer)) ;
+   }
+   close(fd) ;
+  }
+  MPI_Barrier(MPI_COMM_WORLD) ;
+  t1 = MPI_Wtime() ;
+  printf("process %d of %d, nc = %ld MB at offset %ld MB, records = %d\n", my_rank+1, nprocs, nc/1024/1024, pos/1024/1024, nrecords-1) ;
+  if(my_rank == 0) printf("TIME = %f\n", t1-t0) ;
+  MPI_Finalize() ;
+}
+
+#endif
+
 int main(int argc, char **argv){
   return the_test(argc, argv) ;
 }
