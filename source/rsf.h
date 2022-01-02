@@ -20,15 +20,21 @@
 // RSF_RO implies that the file MUST exist
 // RSF_RW implies create file if it does not exist
 // RSF_AP implies that the file MUST exist and will be written into (implies RSF_RW)
-// RSF_SEG1 means consolidate segments into ONE (ignored if RSF_RW not set or new file)
+// RSF_NSEG means that the file will be mostly "write" (only new sparse segment will be accessible)
+// RSF_PSEG means parallel segment mode (mostly write, read from local segment only)
+// RSF_FUSE means consolidate segments into ONE (ignored if RSF_RW not set or new file)
 // otherwise the last segment gets extended and the other segments remain untouched
 #endif
 
+#if ! defined(RSF_VERSION)
+
 #define RSF_VERSION 10000
-#define RSF_RO    2
-#define RSF_RW    4
-#define RSF_AP    8
-#define RSF_SEG1  1024
+#define RSF_RO       2
+#define RSF_RW       4
+#define RSF_AP       8
+#define RSF_NSEG    16
+#define RSF_PSEG    32
+#define RSF_FUSE  1024
 
 #if defined(IN_FORTRAN_CODE)
 
@@ -64,6 +70,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <strings.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -343,4 +350,6 @@ interface
 
 #if defined(IN_FORTRAN_CODE)
 end interface
+#endif
+
 #endif

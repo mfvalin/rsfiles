@@ -1,6 +1,8 @@
-#include <rsf.h>
 
 #if defined(TEST1)
+
+#include <rsf.h>
+
 #define NDATA 10
 #define NREC 3
 #define META_SIZE 6
@@ -45,6 +47,7 @@ int the_test(int argc, char **argv){
     h = RSF_Open_file(names[k], 0, &meta_dim, "DeMo", NULL);
     fprintf(stderr,"after RSF_Open_file\n");
     if( ! RSF_Valid_handle(h) ) {
+      // open is expected to fail for file bad.rsf (wrong permissions on file)
       fprintf(stderr,"ERROR: open failed for file '%s'\n", names[k]) ;
       continue ;
     }
@@ -136,6 +139,9 @@ int the_test(int argc, char **argv){
 #endif
 
 #if defined(TEST3)
+
+#include <rsf.h>
+
 // basic function test
 #define NDATA 10
 #define NREC 3
@@ -271,6 +277,9 @@ fprintf(stderr,"calling RSF_Lookup, crit = %8.8x @%p, mask = %8.8x @%p\n", crite
 #endif
 
 #if defined(TEST2)
+
+#include <rsf_int.h>
+
 // advisory lock with wait test
 #include <mpi.h>
 #include <errno.h>
@@ -311,6 +320,46 @@ int the_test(int argc, char **argv){
     Lock(fd, 0) ;
     fprintf(stderr,"rank = %d, fd = %d unlocked\n",rank,fd) ;
   }
+  MPI_Finalize() ;
+}
+#endif
+
+#if defined(TEST5)
+
+#include <rsf_int.h>
+int RSF_Create_empty_file(RSF_File *fp, int32_t meta_dim, const char *appl) ;
+// advisory lock with wait test
+#include <mpi.h>
+#include <errno.h>
+#include <stdint.h>
+
+// test that only one process will be able to create an empty RSF file
+// mpirun -n N ./test5.exe  new_file_name  # N > 1
+// one process should get a status of 0, all the others should get a status of -1
+int the_test(int argc, char **argv){
+  int fd ;
+  int rank ;
+  int32_t status ;
+  RSF_File fp ;
+
+  MPI_Init(&argc, &argv);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank) ;
+  fd = open(argv[1], O_RDWR | O_CREAT, 0777) ;
+  if(fd < 0) {
+    fprintf(stderr, "rank %d cannot open '%s'\n",rank, argv[1]) ;
+    goto END ;
+  }
+  RSF_File_init(&fp) ;            // initialize structure
+  fp.fd = fd ;                    // fd will be the only useful member for this test
+  MPI_Barrier(MPI_COMM_WORLD) ;   // maximize the probability of a race condition
+  status = RSF_Create_empty_file(&fp, 6, "abcd") ;
+  fprintf(stderr, "rank %d, RSF_Create_empty_file '%s', status = %d\n", rank, argv[1], status) ;
+  close(fd) ;
+  MPI_Barrier(MPI_COMM_WORLD) ;   // wait to make sure file has been created
+  if(rank ==  0){
+    RSF_Dump(argv[1]) ;
+  }
+END :
   MPI_Finalize() ;
 }
 #endif

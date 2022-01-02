@@ -6,7 +6,9 @@ module rsf_mod
   integer, parameter :: RSF_rw      = RSF_RW
   integer, parameter :: RSF_ro      = RSF_RO
   integer, parameter :: RSF_ap      = RSF_AP
-  integer, parameter :: RSF_seg1    = RSF_SEG1
+  integer, parameter :: RSF_nseg    = RSF_NSEG
+  integer, parameter :: RSF_pseg    = RSF_PSEG
+  integer, parameter :: RSF_fuse    = RSF_FUSE
   integer, parameter :: RSF_version = RSF_VERSION
 
 ! the generic interfaces that follow accept RSF_record or RSF_record_handle arguments
