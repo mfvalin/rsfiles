@@ -1,4 +1,35 @@
 
+#if defined(DUMP)
+
+#include <rsf.h>
+#define META_SIZE 6
+
+int the_test(int argc, char **argv){
+  RSF_handle h1, h2;
+  int32_t meta_dim = META_SIZE ;
+  fprintf(stderr,"Opening h1 as R/O\n");
+  h1 = RSF_Open_file(argv[1], RSF_RO, &meta_dim, "DeMo", NULL);
+  fprintf(stderr,"Opening h1 as RW\n");
+  h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", NULL);
+  RSF_Dump(argv[1]) ;
+  RSF_Close_file(h1) ;
+  RSF_Dump(argv[1]) ;
+  fprintf(stderr,"Reopening h1 as RW\n");
+  h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", NULL);
+  RSF_Dump(argv[1]) ;
+//   fprintf(stderr,"Opening h2 as RW (same file as h1)\n");
+//   h2 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", NULL);
+//   RSF_Dump(argv[1]) ;
+  RSF_Close_file(h1) ;
+  RSF_Dump(argv[1]) ;
+  fprintf(stderr,"Fusing segments of h1\n");
+  h1 = RSF_Open_file(argv[1], RSF_RW | RSF_FUSE, &meta_dim, "DeMo", NULL);
+  RSF_Close_file(h1) ;
+  RSF_Dump(argv[1]) ;
+}
+
+#endif
+
 #if defined(TEST1)
 
 #include <rsf.h>

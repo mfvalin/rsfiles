@@ -138,6 +138,14 @@ typedef struct{           // start of segment record, matched by a corresponding
   end_of_record tail ;    // rt=3
 } start_of_segment ;
 
+// record length of start of segment
+static inline uint64_t RSF_Rl_sos(start_of_segment sos){
+  uint64_t rl1 = RSF_Rl_sor(sos.head, RT_SOS) ;
+  uint64_t rl2 = RSF_Rl_eor(sos.tail, RT_SOS) ;
+  if(rl1 != rl2) return 0 ;
+  return rl1 ;
+}
+
 #define SOS { {RT_SOS, 0, ZR_SOR, {0, sizeof(start_of_segment)}},  \
               {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
               {{0, sizeof(start_of_segment)}, RT_SOS, 0, ZR_EOR} }
@@ -160,6 +168,20 @@ typedef struct{           // tail part of end_of_segment record (high address in
   uint32_t dirs[2] ;      // upper[0], lower[1] 32 bits of directory record size (bytes)
   end_of_record tail ;    // rt=4
 } end_of_segment_hi ;
+
+// record length of end of segment
+static inline uint64_t RSF_Rl_eosl(end_of_segment_lo eosl){
+  return RSF_Rl_sor(eosl.head, RT_EOS) ;
+}
+static inline uint64_t RSF_Rl_eosh(end_of_segment_hi eosh){
+  return RSF_Rl_eor(eosh.tail, RT_EOS) ;
+}
+static inline uint64_t RSF_Rl_eos(end_of_segment_lo eosl, end_of_segment_hi eosh){
+  uint64_t rl1 = RSF_Rl_eosl(eosl) ;
+  uint64_t rl2 = RSF_Rl_eosh(eosh) ;
+  if(rl1 != rl2) return 0 ;
+  return rl1 ;
+}
 
 #define EOSHI { 0xCAFEFADE, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {{0, 0}, RT_EOS, 0, ZR_EOR} }
 
@@ -235,21 +257,22 @@ struct RSF_File{                 // internal (in memory) structure for access to
   char *name ;                   // file name (canonicalized absolute path name)
   RSF_Match_fn *matchfn ;        // pointer to metadata matching function
   dir_page **pagetable ;         // directory page table (pointers to directory pages for this file)
-  uint64_t seg_base ;            // base address in file of the current segment (0 if only one segment)
-  start_of_segment sos0 ;        // start of segment of first segment (read from file)
-  start_of_segment sos1 ;        // start of segment of active (compact or sparse) segment
+  uint64_t seg_base ;            // base address in file of the current active segment (0 if only one segment)
+  start_of_segment sos0 ;        // start of segment of first segment (as it was read from file)
+  start_of_segment sos1 ;        // start of segment of active (new) (compact or sparse) segment
   end_of_segment eos1 ;          // end of segment of active (compact or sparse) segment
   uint64_t seg_max ;             // maximum address allowable in segment (0 means no limit) (ssegl if sparse file)
   off_t    size ;                // file size
   off_t    next_write ;          // file offset from beginning of file for next write operation ( -1 if not defined)
   off_t    cur_pos ;             // current file position from beginning of file ( -1 if not defined)
   uint32_t meta_dim ;            // directory entry metadata size (uint32_t units)
+  uint32_t dir_read ;            // number of entries read from file directory 
   uint32_t dir_slots ;           // max number of entries in directory (nb of directory pages * DIR_PAGE_SIZE)
   uint32_t dir_used ;            // number of directory entries in use (all pages belonging to this file/segment)
   int32_t  slot ;                // slot number of file (-1 if invalid)
   uint32_t nwritten ;            // number of records written (useful when closing after write)
-  uint16_t  isnew ;              // new segment indicator
-  uint16_t  last_op ;            // last operation (1 = read) (2 = write) (0 = unknown/invalid)
+  uint16_t isnew ;               // new segment indicator
+  uint16_t last_op ;             // last operation (1 = read) (2 = write) (0 = unknown/invalid)
   uint16_t mode ;                // file mode (RO/RW/AP/...)
   int16_t  dirpages ;            // number of available directory pages (-1 if none )
   int16_t  curpage ;             // current page in use (-1 if not defined)
@@ -273,6 +296,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
   fp->next_write = -1 ;
   fp->cur_pos    = -1 ;
 //   fp->meta_dim   =  0 ;
+//   fp->dir_read  =  0 ;
 //   fp->dir_slots  =  0 ;
 //   fp->dir_used   =  0 ;
   fp->slot       = -1 ;
