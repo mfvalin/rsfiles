@@ -7,25 +7,34 @@
 int the_test(int argc, char **argv){
   RSF_handle h1, h2;
   int32_t meta_dim = META_SIZE ;
+  int64_t segsize = 0 ;
+  char command[1024] ;
+
   fprintf(stderr,"Opening h1 as R/O\n");
   h1 = RSF_Open_file(argv[1], RSF_RO, &meta_dim, "DeMo", NULL);
   fprintf(stderr,"Opening h1 as RW\n");
   h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", NULL);
   RSF_Dump(argv[1]) ;
   RSF_Close_file(h1) ;
+  snprintf(command, sizeof(command), "ls -l %s", argv[1]) ;
+  system(command) ;
   RSF_Dump(argv[1]) ;
   fprintf(stderr,"Reopening h1 as RW\n");
-  h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", NULL);
+  segsize = 4096 ;
+  h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);
+  system(command) ;
   RSF_Dump(argv[1]) ;
 //   fprintf(stderr,"Opening h2 as RW (same file as h1)\n");
 //   h2 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", NULL);
 //   RSF_Dump(argv[1]) ;
   RSF_Close_file(h1) ;
+  fprintf(stderr,"Closed h1 \n");
+  system(command) ;
   RSF_Dump(argv[1]) ;
-  fprintf(stderr,"Fusing segments of h1\n");
-  h1 = RSF_Open_file(argv[1], RSF_RW | RSF_FUSE, &meta_dim, "DeMo", NULL);
-  RSF_Close_file(h1) ;
-  RSF_Dump(argv[1]) ;
+//   fprintf(stderr,"Fusing segments of h1\n");
+//   h1 = RSF_Open_file(argv[1], RSF_RW | RSF_FUSE, &meta_dim, "DeMo", NULL);
+//   RSF_Close_file(h1) ;
+//   RSF_Dump(argv[1]) ;
 }
 
 #endif
