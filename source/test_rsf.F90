@@ -56,17 +56,19 @@ program test_rsf
     enddo
     call RSF_Dump_dir(h)
     status = RSF_Close_file(h)
-    call RSF_Dump(trim(names(k))//achar(0))
+    call RSF_Dump(trim(names(k))//achar(0), 0)
   enddo
 
   print *,"=========== concatenation dump test ==========="
   call system("cat demo[1-3].rsf >demo0.rsf")
-  call RSF_Dump("demo0.rsf"//achar(0))
+  call RSF_Dump("demo0.rsf"//achar(0), 0)
 
-  print *,"=========== add records test ==========="
+  print *,"=========== add records test (FUSE) ==========="
   meta_dim = 0
+!   h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RW + RSF_FUSE, meta_dim, "DeMo", segsize)
   h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RW, meta_dim, "DeMo", segsize)
   print *,"meta_dim =",meta_dim
+  call RSF_Dump("demo0.rsf"//achar(0), 0)
   do i = 0, NREC-1
     do j = 1, META_SIZE-2
       meta(j) = (j * 65536) + i + (int(Z"F") * 256) 
@@ -83,6 +85,7 @@ program test_rsf
     key = RSF_Put(h, meta, C_LOC(data), data_size)
     i0 = i0 + 1
   enddo
+stop
   print *,"=========== dump memory directory test ==========="
   call RSF_Dump_dir(h)
   status = RSF_Close_file(h)
@@ -132,7 +135,7 @@ program test_rsf
   status = RSF_Close_file(h)
 
   print *,"=========== dump file test ==========="
-  call RSF_Dump("demo0.rsf"//achar(0))
+  call RSF_Dump("demo0.rsf"//achar(0), 1)
 ! 1 format(A1,30Z9.8)
 2 format(30Z13.12)
 3 format(30Z9.8)

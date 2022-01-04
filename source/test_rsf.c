@@ -113,16 +113,18 @@ int the_test(int argc, char **argv){
     fprintf(stderr,"%s created\n",names[k]) ;
     RSF_Dump_dir(h) ;
     RSF_Close_file(h) ;
-    RSF_Dump(names[k]) ;
+    RSF_Dump(names[k], 0) ;
   }
   system("cat demo[1-3].rsf >demo0.rsf") ;
   fprintf(stderr,"=========== concatenation test ===========\n") ;
-  RSF_Dump("demo0.rsf") ;
+  RSF_Dump("demo0.rsf", 0) ;
 // exit(0) ;
   fprintf(stderr,"=========== add records test ===========\n") ;
   meta_dim = 0 ;
   h = RSF_Open_file("demo0.rsf", RSF_RW, &meta_dim, "DeMo", NULL);
   fprintf(stderr,"meta_dim = %d\n", meta_dim) ;
+  RSF_Dump("demo0.rsf", 0) ;
+
   for(i = 0 ; i < NREC ; i++){
     for(j=1 ; j < meta_dim-1 ; j++) {
       meta[j] = (j << 16) + i + (0xF << 8) ;
@@ -136,13 +138,15 @@ int the_test(int argc, char **argv){
     for(j=0 ; j < ndata    ; j++) {
       data[j] = j+i0 ;
     }
-    RSF_Put_data(h, meta, data, data_size) ; 
+    RSF_Put_data(h, meta, data, data_size) ; fprintf(stderr,"PUT\n");
     i0++ ;
   }
+RSF_Dump("demo0.rsf", 0) ;
   fprintf(stderr,"=========== dump memory directory test ===========\n") ;
   RSF_Dump_dir(h) ;
   RSF_Close_file(h) ;
-
+RSF_Dump("demo0.rsf", 0) ;
+exit(0) ;
   fprintf(stderr,"=========== scan test ===========\n") ;
   h = RSF_Open_file("demo0.rsf", RSF_RO, &meta_dim, "DeMo", NULL);
   key0 = 0 ;
@@ -174,7 +178,7 @@ int the_test(int argc, char **argv){
 // exit(0) ;
 
   fprintf(stderr,"=========== dump file test ===========\n") ;
-  RSF_Dump("demo0.rsf") ;
+  RSF_Dump("demo0.rsf", 0) ;
 }
 #endif
 

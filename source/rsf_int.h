@@ -157,7 +157,7 @@ typedef struct{           // head part of end_of_segment record (low address in 
   uint32_t sign ;         // 0xBEBEFADA hex signature for end_of_segment_lo
 } end_of_segment_lo ;
 
-#define EOSLO { {RT_EOS, 0, ZR_SOR, {0, 0}}, 0xBEBEFADA }
+#define EOSLO { {RT_EOS, 0, ZR_SOR, {0, sizeof(end_of_segment_lo)+sizeof(end_of_segment_hi)}}, 0xBEBEFADA }
 
 typedef struct{           // tail part of end_of_segment record (high address in file)
   uint32_t sign ;         // 0xCAFEFADE hex signature for end_of_segment_hi
@@ -183,7 +183,7 @@ static inline uint64_t RSF_Rl_eos(end_of_segment_lo eosl, end_of_segment_hi eosh
   return rl1 ;
 }
 
-#define EOSHI { 0xCAFEFADE, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {{0, 0}, RT_EOS, 0, ZR_EOR} }
+#define EOSHI { 0xCAFEFADE, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {{0, sizeof(end_of_segment_lo)+sizeof(end_of_segment_hi)}, RT_EOS, 0, ZR_EOR} }
 
 typedef struct{           // compact end of segment (non sparse file)
   end_of_segment_lo l ;   // head part of end_of_segment record
