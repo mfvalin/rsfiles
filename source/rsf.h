@@ -223,13 +223,14 @@ interface
 #endif
 
 #if defined(IN_FORTRAN_CODE)
-  subroutine RSF_Dump(name) bind(C,name='RSF_Dump')
+  subroutine RSF_Dump(name, verbose) bind(C,name='RSF_Dump')
     import :: C_CHAR
     implicit none
     character(C_CHAR), dimension(*), intent(IN) :: name
+    integer, intent(IN), value :: verbose
   end subroutine RSF_Dump
 #else
-  void RSF_Dump(char *name) ;
+  void RSF_Dump(char *name, int verbose) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)

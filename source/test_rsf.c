@@ -14,27 +14,27 @@ int the_test(int argc, char **argv){
   h1 = RSF_Open_file(argv[1], RSF_RO, &meta_dim, "DeMo", NULL);
   fprintf(stderr,"Opening h1 as RW\n");
   h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", NULL);
-  RSF_Dump(argv[1]) ;
+  RSF_Dump(argv[1], 0) ;
   RSF_Close_file(h1) ;
   snprintf(command, sizeof(command), "ls -l %s", argv[1]) ;
   system(command) ;
-  RSF_Dump(argv[1]) ;
+  RSF_Dump(argv[1], 0) ;
   fprintf(stderr,"Reopening h1 as RW\n");
   segsize = 4096 ;
   h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);
   system(command) ;
-  RSF_Dump(argv[1]) ;
+  RSF_Dump(argv[1], 0) ;
 //   fprintf(stderr,"Opening h2 as RW (same file as h1)\n");
 //   h2 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", NULL);
-//   RSF_Dump(argv[1]) ;
+//   RSF_Dump(argv[1], 0) ;
   RSF_Close_file(h1) ;
   fprintf(stderr,"Closed h1 \n");
   system(command) ;
-  RSF_Dump(argv[1]) ;
-//   fprintf(stderr,"Fusing segments of h1\n");
-//   h1 = RSF_Open_file(argv[1], RSF_RW | RSF_FUSE, &meta_dim, "DeMo", NULL);
-//   RSF_Close_file(h1) ;
-//   RSF_Dump(argv[1]) ;
+  RSF_Dump(argv[1], 1) ;
+  fprintf(stderr,"Fusing segments of h1\n");
+  h1 = RSF_Open_file(argv[1], RSF_RW | RSF_FUSE, &meta_dim, "DeMo", NULL);
+  RSF_Close_file(h1) ;
+  RSF_Dump(argv[1], 1) ;
 }
 
 #endif
@@ -397,7 +397,7 @@ int the_test(int argc, char **argv){
   close(fd) ;
   MPI_Barrier(MPI_COMM_WORLD) ;   // wait to make sure file has been created
   if(rank ==  0){
-    RSF_Dump(argv[1]) ;
+    RSF_Dump(argv[1], 0) ;
   }
 END :
   MPI_Finalize() ;
