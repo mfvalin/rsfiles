@@ -315,7 +315,8 @@ static inline size_t RSF_Disk_dir_entry_size(RSF_File *fp){      // size of a fi
 
 static inline size_t RSF_Disk_dir_size(RSF_File *fp){      // size of the record containing the disk directory in file
   return ( sizeof(disk_directory) +                                                 // base size, includes SOR
-           ( sizeof(uint32_t)*fp->meta_dim + sizeof(disk_dir_entry) ) * fp->dir_used +  // disk entry size * nb of records
+           ( sizeof(uint32_t)*fp->meta_dim + sizeof(disk_dir_entry) )               // disk entry size
+            * (fp->dir_used - fp->dir_read) +                                       //  * nb of records to write
            sizeof(end_of_record) ) ;                                                // end of record
 }
 

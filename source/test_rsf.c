@@ -66,6 +66,7 @@ int the_test(int argc, char **argv){
   int64_t keys[4096] ;
   uint32_t *dataptr, *metaptr ;
   int32_t meta_size ;
+  uint64_t segsize = 0;
 
   bzero(mask, META_SIZE*sizeof(uint32_t)) ;  // search mask (ignore everything for match purposes)
   for(i=0 ; i<5 ; i++) fprintf(stderr,"%d %p",i, names[i]) ; fprintf(stderr,"\n");
@@ -121,9 +122,14 @@ int the_test(int argc, char **argv){
 // exit(0) ;
   fprintf(stderr,"=========== add records test ===========\n") ;
   meta_dim = 0 ;
-  h = RSF_Open_file("demo0.rsf", RSF_RW, &meta_dim, "DeMo", NULL);
-  fprintf(stderr,"meta_dim = %d\n", meta_dim) ;
+  segsize = 65536 ;
+  segsize = 0 ;
+  h = RSF_Open_file("demo0.rsf", RSF_RW + RSF_FUSE, &meta_dim, "DeMo", &segsize);
+//   h = RSF_Open_file("demo0.rsf", RSF_RW, &meta_dim, "DeMo", &segsize);
+  fprintf(stderr,"meta_dim = %d, h.p = %p\n", meta_dim, h.p) ;
   RSF_Dump("demo0.rsf", 0) ;
+  fprintf(stderr,"=========== after open ===========\n") ;
+  if(h.p == NULL) exit(0) ;
 
   for(i = 0 ; i < NREC ; i++){
     for(j=1 ; j < meta_dim-1 ; j++) {
@@ -138,7 +144,7 @@ int the_test(int argc, char **argv){
     for(j=0 ; j < ndata    ; j++) {
       data[j] = j+i0 ;
     }
-    RSF_Put_data(h, meta, data, data_size) ; fprintf(stderr,"PUT\n");
+    RSF_Put_data(h, meta, data, data_size) ; fprintf(stderr,"PUT %p\n",h.p);
     i0++ ;
   }
 RSF_Dump("demo0.rsf", 0) ;

@@ -65,8 +65,8 @@ program test_rsf
 
   print *,"=========== add records test (FUSE) ==========="
   meta_dim = 0
-!   h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RW + RSF_FUSE, meta_dim, "DeMo", segsize)
-  h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RW, meta_dim, "DeMo", segsize)
+  h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RW + RSF_FUSE, meta_dim, "DeMo", segsize)
+!   h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RW, meta_dim, "DeMo", segsize)
   print *,"meta_dim =",meta_dim
   call RSF_Dump("demo0.rsf"//achar(0), 0)
   do i = 0, NREC-1
@@ -85,11 +85,12 @@ program test_rsf
     key = RSF_Put(h, meta, C_LOC(data), data_size)
     i0 = i0 + 1
   enddo
-stop
+call RSF_Dump("demo0.rsf"//achar(0), 0)
   print *,"=========== dump memory directory test ==========="
   call RSF_Dump_dir(h)
   status = RSF_Close_file(h)
-
+call RSF_Dump("demo0.rsf"//achar(0), 0)
+stop
   print *,"=========== scan test ==========="
   h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RO, meta_dim, "DeMo", segsize)
   key0 = 0
@@ -139,4 +140,5 @@ stop
 ! 1 format(A1,30Z9.8)
 2 format(30Z13.12)
 3 format(30Z9.8)
+4 format(A,Z17.16)
 end program
