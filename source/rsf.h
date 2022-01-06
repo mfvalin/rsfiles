@@ -138,7 +138,7 @@ interface
     integer(C_INT32_T), intent(IN), value :: mode
     integer(C_INT32_T), intent(INOUT) :: meta_dim
     character(C_CHAR), intent(IN), dimension(4) :: appl
-    integer(C_INT64_T), intent(IN), value :: segsize
+    integer(C_INT64_T), intent(IN) :: segsize
     type(RSF_handle) :: handle
   end function RSF_Open_file
 #else

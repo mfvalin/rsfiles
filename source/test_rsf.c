@@ -124,7 +124,7 @@ int the_test(int argc, char **argv){
   fprintf(stderr,"=========== add records test ===========\n") ;
   meta_dim = 0 ;
   segsize = 65536 ;
-  segsize = 0 ;
+//   segsize = 0 ;
   h = RSF_Open_file("demo0.rsf", RSF_RW + RSF_FUSE, &meta_dim, "DeMo", &segsize);
 //   h = RSF_Open_file("demo0.rsf", RSF_RW, &meta_dim, "DeMo", &segsize);
   fprintf(stderr,"meta_dim = %d, h.p = %p\n", meta_dim, h.p) ;
@@ -185,6 +185,16 @@ RSF_Dump("demo0.rsf", 0) ;
 // exit(0) ;
 
   fprintf(stderr,"=========== dump file test ===========\n") ;
+  segsize = 32768 ;
+  h = RSF_Open_file("demo0.rsf", RSF_RW, &meta_dim, "DeMo", &segsize);
+  RSF_Close_file(h) ;
+  segsize = 65536 ;
+  h = RSF_Open_file("demo0.rsf", RSF_RW, &meta_dim, "DeMo", &segsize);
+  RSF_Close_file(h) ;
+  segsize = 32768 ;
+  h = RSF_Open_file("demo0.rsf", RSF_RW, &meta_dim, "DeMo", &segsize);
+  RSF_Close_file(h) ;
+  system("ls -l demo0.rsf") ;
   RSF_Dump("demo0.rsf", 0) ;
 }
 #endif

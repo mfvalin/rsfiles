@@ -4,7 +4,7 @@ program test_rsf
 #define META_SIZE 6
 #define NFILES 4
   use ISO_C_BINDING
-  USE ISO_FORTRAN_ENV, ONLY : ERROR_UNIT
+  use ISO_FORTRAN_ENV, only : ERROR_UNIT
   use rsf_mod
   implicit none
   character(len=9), dimension(0:3) :: names = [ "bad.rsf  ", "demo1.rsf", "demo2.rsf", "demo3.rsf"]
@@ -67,6 +67,7 @@ program test_rsf
 
   write(ERROR_UNIT,*)"=========== add records test (FUSE) ==========="
   meta_dim = 0
+  segsize = 65536
   h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RW + RSF_FUSE, meta_dim, "DeMo", segsize)
 !   h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RW, meta_dim, "DeMo", segsize)
   write(ERROR_UNIT,*)"meta_dim =",meta_dim
@@ -87,12 +88,12 @@ program test_rsf
     key = RSF_Put(h, meta, C_LOC(data), data_size)
     i0 = i0 + 1
   enddo
-call RSF_Dump("demo0.rsf"//achar(0), 0)
+! call RSF_Dump("demo0.rsf"//achar(0), 0)
   write(ERROR_UNIT,*)"=========== dump memory directory test ==========="
   call RSF_Dump_dir(h)
   status = RSF_Close_file(h)
-call RSF_Dump("demo0.rsf"//achar(0), 0)
-stop
+! call RSF_Dump("demo0.rsf"//achar(0), 0)
+! stop
   write(ERROR_UNIT,*)"=========== scan test ==========="
   h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RO, meta_dim, "DeMo", segsize)
   key0 = 0
@@ -138,7 +139,20 @@ stop
   status = RSF_Close_file(h)
 
   write(ERROR_UNIT,*)"=========== dump file test ==========="
+  segsize = 32768
+  meta_dim = 0
+  h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RW, meta_dim, "DeMo", segsize)
+  status = RSF_Close_file(h)
+  write(ERROR_UNIT,*)"meta_dim, status =", meta_dim, status
+  call RSF_Dump("demo0.rsf"//achar(0), 0)
+  segsize = 16382
+  meta_dim = 0
+  h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RW, meta_dim, "DeMo", segsize)
+  status = RSF_Close_file(h)
+  write(ERROR_UNIT,*)"meta_dim, status =", meta_dim, status
   call RSF_Dump("demo0.rsf"//achar(0), 1)
+  h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RO, meta_dim, "DeMo", segsize)
+  status = RSF_Close_file(h)
 ! 1 format(A1,30Z9.8)
 2 format(30Z13.12)
 3 format(30Z9.8)
