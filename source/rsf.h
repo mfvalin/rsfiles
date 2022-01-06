@@ -24,16 +24,19 @@
 // RSF_PSEG means parallel segment mode (mostly write, read from local segment only)
 // RSF_FUSE means consolidate segments into ONE (ignored if RSF_RW not set or new file)
 // otherwise the last segment gets extended and the other segments remain untouched
+
+// RSF_NSEG and RSF_PSEG : deferred implementation
+#define RSF_NSEG    16
+#define RSF_PSEG    32
 #endif
 
 #if ! defined(RSF_VERSION)
 
+#define RSF_VERSION_STRING "1.0.0"
 #define RSF_VERSION 10000
 #define RSF_RO       2
 #define RSF_RW       4
 #define RSF_AP       8
-#define RSF_NSEG    16
-#define RSF_PSEG    32
 #define RSF_FUSE  1024
 
 #if defined(IN_FORTRAN_CODE)

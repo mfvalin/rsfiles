@@ -81,6 +81,7 @@ int the_test(int argc, char **argv){
     fprintf(stderr,"ERROR: create with metadata length == 0 did not fail as expected\n") ;
   }
 
+  fprintf(stderr,"=========== RSF version %s test ===========\n",RSF_VERSION_STRING) ;
   fprintf(stderr,"=========== file creation test 1 ===========\n") ;
   for(k=0 ; k<4 ; k++){
 //     fprintf(stderr,"before RSF_Open_file\n");
@@ -152,7 +153,7 @@ RSF_Dump("demo0.rsf", 0) ;
   RSF_Dump_dir(h) ;
   RSF_Close_file(h) ;
 RSF_Dump("demo0.rsf", 0) ;
-exit(0) ;
+// exit(0) ;
   fprintf(stderr,"=========== scan test ===========\n") ;
   h = RSF_Open_file("demo0.rsf", RSF_RO, &meta_dim, "DeMo", NULL);
   key0 = 0 ;

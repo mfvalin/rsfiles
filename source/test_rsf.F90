@@ -4,6 +4,7 @@ program test_rsf
 #define META_SIZE 6
 #define NFILES 4
   use ISO_C_BINDING
+  USE ISO_FORTRAN_ENV, ONLY : ERROR_UNIT
   use rsf_mod
   implicit none
   character(len=9), dimension(0:3) :: names = [ "bad.rsf  ", "demo1.rsf", "demo2.rsf", "demo3.rsf"]
@@ -27,14 +28,15 @@ program test_rsf
   i0  = 0
   mode = RSF_RW
   meta_dim = META_SIZE
-  meta(0)           = shiftl(int(Z"CAFE"),16) + int(Z"FADE")  ! rigamarole because int(Z"CAFEFADE") is rejected by some compilers
-  meta(META_SIZE-1) = shiftl(int(Z"DEAD"),16) + int(Z"BEEF")
+  meta(0)           = ishft(int(Z"CAFE"),16) + int(Z"FADE")  ! rigamarole because int(Z"CAFEFADE") is rejected by some compilers
+  meta(META_SIZE-1) = ishft(int(Z"DEAD"),16) + int(Z"BEEF")
   appl = "DeMo"
-  print *,"=========== file creation test 1 ==========="
+  write(ERROR_UNIT,*)"=========== RSF file version ", RSF_VERSION_STRING , " test ==========="
+  write(ERROR_UNIT,*)"=========== file creation test 1 ==========="
   do k = 0, 3
     h = RSF_Open_file(trim(names(k))//achar(0), RSF_RW, meta_dim, appl, segsize)
     if(RSF_Valid_handle(h) .eq. 0) then
-      print *,"ERROR: open failed for file '"//trim(names(k))//"'"
+      write(ERROR_UNIT,*)"ERROR: open failed for file '"//trim(names(k))//"'"
       cycle
     endif
     do i = 0, NREC-1
@@ -43,7 +45,7 @@ program test_rsf
       enddo
       ndat = NDATA + i0
       if(ndat > size(data)) then
-        print *,'ERROR: data overflow, ndata =',ndat,' max =',size(data)
+        write(ERROR_UNIT,*)'ERROR: data overflow, ndata =',ndat,' max =',size(data)
         stop 'error'
       endif
       data_size = ndat * 4
@@ -59,15 +61,15 @@ program test_rsf
     call RSF_Dump(trim(names(k))//achar(0), 0)
   enddo
 
-  print *,"=========== concatenation dump test ==========="
+  write(ERROR_UNIT,*)"=========== concatenation dump test ==========="
   call system("cat demo[1-3].rsf >demo0.rsf")
   call RSF_Dump("demo0.rsf"//achar(0), 0)
 
-  print *,"=========== add records test (FUSE) ==========="
+  write(ERROR_UNIT,*)"=========== add records test (FUSE) ==========="
   meta_dim = 0
   h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RW + RSF_FUSE, meta_dim, "DeMo", segsize)
 !   h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RW, meta_dim, "DeMo", segsize)
-  print *,"meta_dim =",meta_dim
+  write(ERROR_UNIT,*)"meta_dim =",meta_dim
   call RSF_Dump("demo0.rsf"//achar(0), 0)
   do i = 0, NREC-1
     do j = 1, META_SIZE-2
@@ -76,7 +78,7 @@ program test_rsf
     ndat = NDATA + i0
     data_size = ndat * 4
     if(ndat > size(data)) then
-      print *,'ERROR: data overflow, ndata =',ndat,' max =',size(data)
+      write(ERROR_UNIT,*)'ERROR: data overflow, ndata =',ndat,' max =',size(data)
       stop 'error'
     endif
     do j = 0, ndat-1
@@ -86,12 +88,12 @@ program test_rsf
     i0 = i0 + 1
   enddo
 call RSF_Dump("demo0.rsf"//achar(0), 0)
-  print *,"=========== dump memory directory test ==========="
+  write(ERROR_UNIT,*)"=========== dump memory directory test ==========="
   call RSF_Dump_dir(h)
   status = RSF_Close_file(h)
 call RSF_Dump("demo0.rsf"//achar(0), 0)
 stop
-  print *,"=========== scan test ==========="
+  write(ERROR_UNIT,*)"=========== scan test ==========="
   h = RSF_Open_file("demo0.rsf"//achar(0), RSF_RO, meta_dim, "DeMo", segsize)
   key0 = 0
   keys = 0
@@ -111,31 +113,31 @@ stop
     print 3,metap(1:meta_dim)
   enddo
   print 2,metapti(1:i0)
-  print *,"=========== record buffer syntax test ==========="
+  write(ERROR_UNIT,*)"=========== record buffer syntax test ==========="
   max_data = 4096
 
   rh = RSF_New_record_handle(h, max_data, C_NULL_PTR, max_data)   ! record handle
   status = RSF_Valid_record(rh)
   mp => RSF_Record_metadata(rh)
-  print *, "size of metadata mp  =",size(mp),' valid =',status
+  write(ERROR_UNIT,*) "size of metadata mp  =",size(mp),' valid =',status
   dp => RSF_Record_payload(rh)
-  print *, "size of payload dp   =",size(dp),' alloc =',RSF_Record_allocsize(rh),' maxddata =',max_data
+  write(ERROR_UNIT,*) "size of payload dp   =",size(dp),' alloc =',RSF_Record_allocsize(rh),' maxddata =',max_data
   call RSF_Free_record(rh)
-  print *, "record handle memory freed"
+  write(ERROR_UNIT,*) "record handle memory freed"
 
   rp => RSF_New_record(h, max_data)   ! pointer to record
   status = RSF_Valid_record(rp)
-!   print *, rp%meta_size     ! this line MUST fail to compile (referencing a private component)
+!   write(ERROR_UNIT,*) rp%meta_size     ! this line MUST fail to compile (referencing a private component)
   mp2 => RSF_Record_metadata(rp)
-  print *, "size of metadata mp2 =",size(mp2),' valid =',status
+  write(ERROR_UNIT,*) "size of metadata mp2 =",size(mp2),' valid =',status
   dp2 => RSF_Record_payload(rp)
-  print *, "size of payload  dp2 =",size(dp2),' alloc =',RSF_Record_allocsize(rp),' maxddata =',max_data
+  write(ERROR_UNIT,*) "size of payload  dp2 =",size(dp2),' alloc =',RSF_Record_allocsize(rp),' maxddata =',max_data
   call RSF_Free_record(rp)
-  print *, "record memory freed"
-  print *,"=========== close file ==========="
+  write(ERROR_UNIT,*) "record memory freed"
+  write(ERROR_UNIT,*)"=========== close file ==========="
   status = RSF_Close_file(h)
 
-  print *,"=========== dump file test ==========="
+  write(ERROR_UNIT,*)"=========== dump file test ==========="
   call RSF_Dump("demo0.rsf"//achar(0), 1)
 ! 1 format(A1,30Z9.8)
 2 format(30Z13.12)

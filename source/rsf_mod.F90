@@ -6,10 +6,11 @@ module rsf_mod
   integer, parameter :: RSF_rw      = RSF_RW
   integer, parameter :: RSF_ro      = RSF_RO
   integer, parameter :: RSF_ap      = RSF_AP
-  integer, parameter :: RSF_nseg    = RSF_NSEG
-  integer, parameter :: RSF_pseg    = RSF_PSEG
+!   integer, parameter :: RSF_nseg    = RSF_NSEG
+!   integer, parameter :: RSF_pseg    = RSF_PSEG
   integer, parameter :: RSF_fuse    = RSF_FUSE
   integer, parameter :: RSF_version = RSF_VERSION
+  character(len=*), parameter :: RSF_version_string = RSF_VERSION_STRING
 
 ! the generic interfaces that follow accept RSF_record or RSF_record_handle arguments
 ! 1 suffixed procedures accept RSF_record (a pointer to RSF_record may be obtained from RSF_New_record)
