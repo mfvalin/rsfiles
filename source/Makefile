@@ -33,7 +33,7 @@ librsf.a: rsf.c rsf_mod.F90 rsf.h bad.rsf
 	ar rcv librsf.a rsf.o rsf_mod.o
 
 clean:
-	rm -f *.rsf demo.dat  *.Abs *.exe *.o *.mod a.out *.a
+	rm -f demo*.rsf demo.dat  test*.Abs test*.exe *.o *.mod a.out *.a
 
 bad.rsf:
 	touch bad.rsf

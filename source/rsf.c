@@ -838,15 +838,30 @@ int32_t RSF_Valid_handle(RSF_handle h){
   return 0 ;
 }
 
-static int32_t RSF_File_lock(int fd, off_t start, off_t length, int lock){
+static int32_t RSF_File_lock(int fd, int lock){
   struct flock file_lock ;
+  int status, status2 ;
 
-  file_lock.l_type = lock ? F_WRLCK : F_UNLCK ;      // write lock | unlock
   file_lock.l_whence = SEEK_SET ;                    // locked area is at beginning of file
-  file_lock.l_start = start ;                        // base of segment to be locked
-  file_lock.l_len = length ;
+  file_lock.l_start = 0 ;                        // base of segment to be locked
+  file_lock.l_len = 0 ;
 
-  return fcntl(fd, F_SETLKW, &file_lock) ;
+  if(lock){
+    file_lock.l_type = F_WRLCK ;
+    status = fcntl(fd, F_SETLK, &file_lock) ;
+    while ( status != 0) {
+      status2 = fcntl(fd, F_GETLK, &file_lock) ;
+      fprintf(stderr,"RSF_File_lock DEBUG : %d blocked by pid = %d\n", getpid(), file_lock.l_pid) ;
+      usleep(1000) ;
+      status = fcntl(fd, F_SETLK, &file_lock) ;
+    }
+    fprintf(stderr,"RSF_File_lock DEBUG : locked by pid %d\n", getpid());
+  }else{
+    file_lock.l_type = F_UNLCK ;
+    status = fcntl(fd, F_SETLK, &file_lock) ;
+    fprintf(stderr,"RSF_File_lock DEBUG : released by pid %d\n", getpid());
+  }
+  return status ;
 }
 
 // create an empty RSF segment : start of segment, empty directory, end of segment
@@ -863,7 +878,11 @@ int RSF_New_empty_segment(RSF_File *fp, int32_t meta_dim, const char *appl, uint
   uint64_t rl_sparse ;
   int status = -1 ;
 
-  RSF_File_lock(fp->fd, start, sizeof(start_of_segment), 1) ;    // lock file address range 
+// fprintf(stderr,"RSF_New_empty_segment DEBUG: waiting for lock, pid = %d\n",getpid());
+//   RSF_File_lock(fp->fd, start, sizeof(start_of_segment), 1) ;    // lock file address range 
+  RSF_File_lock(fp->fd, 1) ;    // lock file address range 
+// fprintf(stderr,"RSF_New_empty_segment DEBUG: lock acquired, pid = %d\n",getpid());
+usleep(1000) ;
   nc = read(fp->fd, &sos0, sizeof(start_of_segment)) ;           // try to read first start of segment into sos0
 
   if(nc == 0){                                                   // empty file
@@ -968,7 +987,9 @@ int RSF_New_empty_segment(RSF_File *fp, int32_t meta_dim, const char *appl, uint
 // fprintf(stderr,"after segment create %ld\n", lseek(fp->fd, 0L , SEEK_CUR));
 // system("ls -l demo0.rsf") ;
 ERROR :
-  RSF_File_lock(fp->fd, start, sizeof(start_of_segment), 0) ;  // unlock file address range
+//   RSF_File_lock(fp->fd, start, sizeof(start_of_segment), 0) ;  // unlock file address range
+  RSF_File_lock(fp->fd, 0) ;  // unlock file address range
+// fprintf(stderr,"RSF_New_empty_segment DEBUG: lock released, pid = %d\n",getpid());
   return status ;
 }
 
@@ -1374,8 +1395,8 @@ void RSF_Dump(char *name, int verbose){
       fprintf(stderr,"|%d S(%2.2d) %s\n",eor.rlm, segment, (tlen==reclen) ? ", O.K." : ", RL ERROR") ;
     }
     if(tlen != reclen) goto END ; ;
-    if(sor.rt == RT_DIR && d != NULL && verbose > 0 && tabplus == 0){
-      fprintf(stderr," Directory records :\n") ;
+    if(sor.rt == RT_DIR && d != NULL && verbose > 0 && tabplus == 0 && d->entries_nused > 0){
+      fprintf(stderr," Directory details :\n") ;
       meta = (uint32_t *) &(d->entry[0]) ;
       for(i=0 ; i < d->entries_nused ; i++){
 //         fprintf(stderr," [%6d] %4.4x%8.8x %4.4x%8.8x", i, meta[0],meta[1],meta[2],meta[3]);
@@ -1389,6 +1410,7 @@ void RSF_Dump(char *name, int verbose){
         fprintf(stderr," %8.8x %8.8x %8.8x\n", meta[0], meta[meta_dim/2] , meta[meta_dim-1]) ;
         meta = meta + meta_dim ;
       }
+      fprintf(stderr,"-------------------------------------------------\n") ;
     }
     rec++ ;
     rec_offset = lseek(fd, offset = 0, SEEK_CUR) ;  // current position

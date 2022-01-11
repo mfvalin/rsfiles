@@ -1,5 +1,59 @@
 
-#if defined(DUMP)
+#if defined(RSF_DUMP)
+
+#include <rsf.h>
+#define META_SIZE 6
+void usage(char **argv){
+  fprintf(stderr,"usage : %s rsf_file [verbose]\n",argv[0]);
+}
+int the_test(int argc, char **argv){
+  int64_t verbose = 0 ;
+  char command[1024] ;
+
+  if(argc < 2){
+    usage(argv) ;
+    exit(1) ;
+  }
+  if(argc > 2) verbose = atoi(argv[2]) ;
+  snprintf(command, sizeof(command), "ls -l %s", argv[1]) ;
+  system(command) ;
+  RSF_Dump(argv[1], verbose) ;
+  return(0) ;
+}
+
+#endif
+
+#if defined(TEST7)
+
+#include <rsf.h>
+#include <mpi.h>
+#define META_SIZE 6
+int the_test(int argc, char **argv){
+  int my_rank, nprocs ;
+  RSF_handle h1 ;
+  int32_t meta_dim = META_SIZE ;
+  int64_t segsize = 16384 ;
+
+  MPI_Init(&argc, &argv) ;
+  MPI_Comm_rank(MPI_COMM_WORLD, &my_rank) ;
+  MPI_Comm_size(MPI_COMM_WORLD, &nprocs) ;
+  fprintf(stderr,"PE %d of %d, pid = %d\n", my_rank+1, nprocs, getpid()) ;
+  if(argc < 2) goto ERROR ;
+  MPI_Barrier(MPI_COMM_WORLD) ;
+  h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);
+  MPI_Barrier(MPI_COMM_WORLD) ;
+  RSF_Close_file(h1) ;
+END :
+  MPI_Finalize() ;
+  return(0) ;
+ERROR :
+  if(my_rank == 0) fprintf(stderr,"usage : %s rsf_file\n", argv[0]) ;
+  goto END ;
+}
+
+#endif
+
+#if defined(TEST6)
 
 #include <rsf.h>
 #define META_SIZE 6
