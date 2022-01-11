@@ -118,7 +118,7 @@ interface
     integer(C_INT32_T) :: status
   end function RSF_Default_match
 
-  function RSF_Base_match(criteria, meta, mask, n) result(status) bind(C,name='RSF_Default_match')
+  function RSF_Base_match(criteria, meta, mask, n) result(status) bind(C,name='RSF_Base_match')
     import :: C_INT32_T
     implicit none
     integer(C_INT32_T), intent(IN), dimension(*) :: criteria, meta, mask
