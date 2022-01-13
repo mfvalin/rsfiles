@@ -1,4 +1,31 @@
 
+#if defined(RSF_OPEN)
+
+#include <rsf.h>
+#define META_SIZE 6
+void usage(char **argv){
+  fprintf(stderr,"usage : %s rsf_file [verbose]\n",argv[0]);
+}
+int the_test(int argc, char **argv){
+  int64_t verbose = 0 ;
+  char command[1024] ;
+  int32_t meta_dim = META_SIZE ;
+  RSF_handle h1 ;
+
+  if(argc < 2){
+    usage(argv) ;
+    exit(1) ;
+  }
+  if(argc > 2) verbose = atoi(argv[2]) ;
+  snprintf(command, sizeof(command), "ls -l %s", argv[1]) ;
+  system(command) ;
+  h1 = RSF_Open_file(argv[1], RSF_RO, &meta_dim, "DeMo", NULL);  // open file
+  RSF_Dump_dir(h1) ;
+  return(0) ;
+}
+
+#endif
+
 #if defined(RSF_DUMP)
 
 #include <rsf.h>
@@ -9,6 +36,8 @@ void usage(char **argv){
 int the_test(int argc, char **argv){
   int64_t verbose = 0 ;
   char command[1024] ;
+  RSF_handle h1 ;
+  int32_t meta_dim = 0 ;
 
   if(argc < 2){
     usage(argv) ;
@@ -17,7 +46,13 @@ int the_test(int argc, char **argv){
   if(argc > 2) verbose = atoi(argv[2]) ;
   snprintf(command, sizeof(command), "ls -l %s", argv[1]) ;
   system(command) ;
-  RSF_Dump(argv[1], verbose) ;
+  if(verbose >= 0) {
+    RSF_Dump(argv[1], verbose) ;
+  }else{
+    h1 = RSF_Open_file(argv[1], RSF_RO, &meta_dim, "DeMo", NULL);  // open file
+    fprintf(stderr,"file '%s', meta_dim = %d\n",argv[1],meta_dim) ;
+    RSF_Dump_dir(h1) ;                                             // dump memory directoey
+  }
   return(0) ;
 }
 
@@ -27,12 +62,21 @@ int the_test(int argc, char **argv){
 
 #include <rsf.h>
 #include <mpi.h>
+#define NDATA 3000
+#define NREC 10
 #define META_SIZE 6
+#define NFILES 1
+
 int the_test(int argc, char **argv){
   int my_rank, nprocs ;
   RSF_handle h1 ;
   int32_t meta_dim = META_SIZE ;
-  int64_t segsize = 16384 ;
+  int64_t segsize = 1024*1024 ;
+  uint32_t meta[META_SIZE] ;
+  uint32_t mask[META_SIZE] ;
+  int32_t data[NDATA+NREC] ;
+  size_t data_size ;
+  int i, j, ndata ;
 
   MPI_Init(&argc, &argv) ;
   MPI_Comm_rank(MPI_COMM_WORLD, &my_rank) ;
@@ -40,9 +84,33 @@ int the_test(int argc, char **argv){
   fprintf(stderr,"PE %d of %d, pid = %d\n", my_rank+1, nprocs, getpid()) ;
   if(argc < 2) goto ERROR ;
   MPI_Barrier(MPI_COMM_WORLD) ;
-  h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);
+  h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);  // open file
+  for(i = 0 ; i < NREC ; i++){
+    meta[0] = my_rank ;
+    for(j=1 ; j < meta_dim-2 ; j++) {
+      meta[j] = (j << 16) + i + (0xF << 8) ;
+    }
+    meta[meta_dim-1] = ( (my_rank +1 ) << 16 ) + nprocs ;
+    ndata = NDATA + i ;
+    data_size = ndata * sizeof(int32_t) ;
+    if(ndata > NDATA+NREC){
+      fprintf(stderr,"ERROR: data overflow ndata = %d, max allowed = %d\n", ndata, NDATA+NREC*NFILES);
+      exit(1) ;
+    }
+    for(j=0 ; j < ndata    ; j++) {
+      data[j] = j+i ;
+    }
+    RSF_Put_data(h1, meta, data, data_size) ; fprintf(stderr,"PUT %p\n",h1.p);
+  }
   MPI_Barrier(MPI_COMM_WORLD) ;
   RSF_Close_file(h1) ;
+  MPI_Barrier(MPI_COMM_WORLD) ;
+  if(my_rank == nprocs -1){
+    h1 = RSF_Open_file(argv[1], RSF_RW + RSF_FUSE, &meta_dim, "DeMo", NULL);
+//     h1 = RSF_Open_file(argv[1], RSF_RO , &meta_dim, "DeMo", NULL);
+    RSF_Dump_dir(h1) ;
+    RSF_Close_file(h1) ;
+  }
 END :
   MPI_Finalize() ;
   return(0) ;

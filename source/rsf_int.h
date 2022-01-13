@@ -310,7 +310,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
 }
 
 static inline size_t RSF_Disk_dir_entry_size(RSF_File *fp){      // size of a file directory entry
-  return ( sizeof(uint32_t)*fp->meta_dim + sizeof(disk_dir_entry) ) ;
+  return ( (sizeof(uint32_t)*fp->meta_dim + sizeof(disk_dir_entry)) ) ;
 }
 
 static inline size_t RSF_Disk_dir_size(RSF_File *fp){      // size of the record containing the disk directory in file

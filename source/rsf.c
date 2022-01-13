@@ -309,6 +309,7 @@ static inline void RSF_Get_dir_entry(RSF_File *fp, int64_t key, uint64_t *wa, ui
 // return number of records found in segment directories (-1 upon error)
 static int32_t RSF_Read_directory(RSF_File *fp){
   int32_t entries = 0 ;
+  int32_t l_entries ;
   int32_t segments = 0 ;
   int32_t slot ;
   uint64_t size_seg, dir_off, dir_size, dir_size2 ;
@@ -324,13 +325,15 @@ static int32_t RSF_Read_directory(RSF_File *fp){
   uint32_t *meta ;
   uint32_t meta_dim ;
   char *errmsg = "" ;
+  off_t wa_dir ;
 // fprintf(stderr,"read directory, file '%s', slot = %d\n",fp->name, RSF_Valid_file(fp)) ;
   if( ! (slot = RSF_Valid_file(fp)) ) return -1 ;           // something not O.K. with fp
   off_seg = 0 ;                                             // first segment at beginning of file
 
   while(1){                                                 // loop over segments
 // fprintf(stderr,"segment offset = %ld\n",off_seg) ;
-    lseek(fp->fd, offset = off_seg , SEEK_SET) ;            // start of target segment
+    lseek(fp->fd, off_seg , SEEK_SET) ;            // start of target segment
+
     nc = read(fp->fd, &sos, sizeof(start_of_segment)) ;     // try to read start of segment
     if(nc < sizeof(start_of_segment)) break ;               // end of file reached, done
     segments++ ;
@@ -341,13 +344,15 @@ static int32_t RSF_Read_directory(RSF_File *fp){
     if(size_seg == 0) break ;                               // open, compact, this is the last segment
     dir_off  = RSF_32_to_64(sos.dir) ;                      // offset of directory in segment
     dir_size = RSF_32_to_64(sos.dirs) ;                     // directory size from start of segment
-
+fprintf(stderr,"RSF_Read_directory DEBUG: segment %d, at %lx, dir_off = %ld, dir_size = %ld\n", segments, off_seg, dir_off, dir_size) ;
+    l_entries = 0 ;
     if(dir_size > 0 && dir_off > 0) {                       // non empty segment
       ddir = (disk_directory *) malloc(dir_size) ;          // allocate memory to read segment directory from file
       errmsg = "disk directory allocation failed" ;
       if(ddir == NULL) goto ERROR ;                         // malloc failed
 
-      lseek(fp->fd, offset = off_seg + dir_off, SEEK_SET) ; // seek to segment directory
+      wa_dir = lseek(fp->fd, off_seg + dir_off, SEEK_SET) ; // seek to segment directory
+fprintf(stderr,"RSF_Read_directory DEBUG: segment directory wa = %lx, rl = %ld\n", wa_dir, dir_size) ;
       nc = read(fp->fd, ddir, dir_size) ;                   // read segment directory
       dir_size2 = RSF_32_to_64(ddir->sor.rl) ;              // directory size from record
       errmsg = "inconsistent directory sizes sor/dir" ;
@@ -366,13 +371,15 @@ static int32_t RSF_Read_directory(RSF_File *fp){
         rl = RSF_32_to_64(entry->rl) ;                      // record length
         meta = &(entry->meta[0]) ;                          // record metadata
         RSF_Add_directory_entry(fp, meta, wa, rl) ;         // add entry into memory directory
-        entries ++ ;                                         // one more valid recird
+        entries++ ;                                         // one more valid record
+        l_entries++ ;                                       // one more record in this segment
   // fprintf(stderr,"%12.12x(%8.8x) %8.8x %8.8x %8.8x\n", wa, rl,  meta[0], meta[meta_dim/2], meta[meta_dim-1]) ;
         e += dir_entry_size ;                               // next directory entry
       }
       if(ddir) free(ddir) ;                                 // free memory used to read segment directory from file
       ddir = NULL ;                                         // to avoid a double free
     }
+    fprintf(stderr,"RSF_Read_directory DEBUG: found %d entries in segment %d\n", l_entries, segments-1) ;
     off_seg += size_seg ;                                   // offset of the start of the next segment
   }  // while(1)
 fprintf(stderr,"RSF_Read_directory DEBUG: found %d entries in %d segment directories\n", entries, segments) ;
@@ -424,14 +431,16 @@ static int64_t RSF_Write_directory(RSF_File *fp){
 // fprintf(stderr,"p = %16p, eorp = %16p, e = %16p\n", p, eorp, e);
 // do not start at entry # 1, but entry # fp->dir_read + 1 (only write entries from "active" segment)
 // when "fusing" segments, fp->dir_read gets reset to 0
-fprintf(stderr,"RSF_Write_directory DEBUG : skipping %d records\n", fp->dir_read) ;
+fprintf(stderr,"RSF_Write_directory DEBUG : skipping %d records, segment base = %lx\n", fp->dir_read, fp->seg_base) ;
   for(i = fp->dir_read + 1 ; i <= fp->dir_used ; i++){             // fill from in core directory
     entry = (disk_dir_entry *) e ;
     // get wa, rl, meta for entry i from in core directory
     RSF_Get_dir_entry(fp, i, &wa64, &rl64, entry->meta) ;
+    wa64 -= fp->seg_base ;
     RSF_64_to_32(entry->wa, wa64) ;
     RSF_64_to_32(entry->rl, rl64) ;
     e += dir_entry_size ;
+fprintf(stderr,"RSF_Write_directory DEBUG : WA = %lx, rl = %lx (%ld)\n", wa64, rl64, dir_entry_size) ;
   }
   if(fp->next_write != fp->cur_pos)                 // set position after last write (SOS or DATA record) if not there yet
     fp->cur_pos = lseek(fp->fd, fp->next_write , SEEK_SET) ;
@@ -1146,9 +1155,17 @@ int32_t RSF_Close_file(RSF_handle h){
   uint64_t dir_size, sparse_size, rl_eos ;
   ssize_t nc ;
   uint64_t sparse_start, sparse_top ;
+  int32_t write0 = 1 ;
+  uint64_t base0_seg_max = 0 ;
 
   if( ! (slot = RSF_Valid_file(fp)) ) return 0 ;   // something not O.K. with fp
 
+  base0_seg_max = RSF_32_to_64(fp->sos0.sseg) ;    // seg_max from first segment of file
+//   if(fp->seg_max > 0 && fp->seg_base ==0) {
+  if(base0_seg_max > 0) {
+    write0 = 0 ;  // first segment is a sparse segment
+    fprintf(stderr,"RSF_Close_file DEBUG : segment 0 is sparse\n");
+  }
   if( (fp->mode & RSF_RO) == RSF_RO) goto CLOSE ;  // file open in read only mode, nothing to rewrite
 // system("ls -l demo0.rsf");
 // fprintf(stderr,"before close position %ld, next_write = %ld \n", lseek(fp->fd, 0L , SEEK_CUR), fp->next_write);
@@ -1240,7 +1257,8 @@ fprintf(stderr,"DEBUG: CLOSE: '%s' EOS, rt = %d, zr = %d, rl = %8.8x %8.8x, rlm 
   cur = lseek(fp->fd, fp->seg_base , SEEK_SET) ;
   nc = write(fp->fd, &sos, sizeof(start_of_segment)) ;      // rewrite start of active segment
 // fprintf(stderr,"RSF_Close_file DEBUG : start_of_segment at %ld\n",fp->seg_base);
-  if(fp->isnew == 0) {  // skip this for new files and fused files
+  if(fp->isnew == 0 && write0 == 1) {  // skip this for new files, fused files, and segment 0 sparse
+    fprintf(stderr,"RSF_Close_file DEBUG : rewriting segment 0 header\n");
     lseek(fp->fd, offset = 0 , SEEK_SET) ;
     fp->sos0.head.rlm = 0 ;
     nc = write(fp->fd, &fp->sos0, sizeof(start_of_segment)) ;  // rewrite start of segment 0
@@ -1249,7 +1267,6 @@ fprintf(stderr,"DEBUG: CLOSE: '%s' EOS, rt = %d, zr = %d, rl = %8.8x %8.8x, rlm 
 
 CLOSE :
   close(fp->fd) ;                                  // close file
-
   RSF_Purge_file_slot(fp) ;                        // remove from file table
   // free memory associated with file
   free(fp->name) ;                                 // free file name buffer
@@ -1295,15 +1312,18 @@ void RSF_Dump(char *name, int verbose){
   int meta_dim = -1 ;
   uint64_t segsize, ssize ;
   disk_directory *d = NULL ;
+  disk_dir_entry *entry ;
+  char *e ;
+  uint64_t dir_entry_size ;
   uint32_t *meta ;
   int i ;
   uint32_t *data, signature ;
   int ndata ;
-  off_t dir_offset, dir_addr, rec_offset, offset, seg_offset ;
+  off_t dir_offset, dir_addr, rec_offset, offset, seg_offset, dir_seg_offset, l_offset ;
   int64_t wa, rl ;
   int tabplus = 0 ;
   uint64_t seg_bot, seg_top, seg_dir ;
-  int segment = -1 ;
+  int segment = 0 ;
   uint64_t eof ;
   char buffer[4096] ;
 
@@ -1319,20 +1339,18 @@ void RSF_Dump(char *name, int verbose){
   seg_top = 0 ;
   seg_dir = 0 ;
   while(nc > 0) {
-//     reclen = sor.rlx ; reclen <<= 32 ; reclen += sor.rl ;
     reclen = RSF_32_to_64(sor.rl) ;
     datalen = reclen - sizeof(sor) - sizeof(eor) ;
     if(sor.rt > 5) sor.rt = 5 ;
     tabplus = (rec_offset < seg_dir) ? 8 : 0 ;
-//     fprintf(stderr," %s %5d [%12.12lx], rl = %6ld, dl = %6ld,",tab[sor.rt+tabplus],  rec, rec_offset, reclen, datalen) ;
     snprintf(buffer,sizeof(buffer),"%s %5d [%12.12lx], rl = %6ld, dl = %6ld,",tab[sor.rt+tabplus],  rec, rec_offset, reclen, datalen) ;
     switch(sor.rt){
       case RT_DIR :
         dir_offset = lseek(fd, -sizeof(sor), SEEK_CUR) ; 
         d = (disk_directory *) malloc(datalen + sizeof(sor)) ;
         nc =  read(fd, d, datalen + sizeof(sor) ) ;  // read directory
-        fprintf(stderr,"  %s meta_dim = %d, records  = %8d, dir_offset %s %8.8lx, rlm = %d", buffer,
-                d->meta_dim, d->entries_nused, (dir_offset == dir_addr) ? "==": "!=", dir_addr, d->sor.rlm) ;
+        fprintf(stderr,"  %s meta_dim = %d, records  = %8d, dir offset %8.8lx %s addr %8.8lx, rlm = %d", buffer,
+                d->meta_dim, d->entries_nused, dir_offset, (dir_offset == dir_addr) ? "==": "!=", dir_addr, d->sor.rlm) ;
         break ;
       case RT_DATA :
         data = (uint32_t *) malloc(datalen) ;
@@ -1357,11 +1375,9 @@ void RSF_Dump(char *name, int verbose){
           seg_bot = seg_offset ;
           seg_top = seg_bot + segsize - 1 ;
           seg_dir = seg_bot + dir_addr ;
-          segment++ ;
+          dir_seg_offset = seg_offset ;
         }
-//         if(ssize == 0 && segsize != 0) fprintf(stderr,"<..>");
         fprintf(stderr,"%s",(ssize == 0 && segsize != 0) ? "<>" : "  " ) ;
-//         fprintf(stderr," seg = %ld,", ssize);
         fprintf(stderr,"%s meta_dim = %d, seg size = %8ld, dir_offset == %8.8lx, rlm = %d", buffer,
                 meta_dim, segsize, dir_addr, sos.head.rlm) ;
         break ;
@@ -1377,8 +1393,6 @@ void RSF_Dump(char *name, int verbose){
         segsize  = RSF_32_to_64(eos.h.sseg) ;
         ssize    = RSF_32_to_64(sos.seg) ;
         dir_addr = RSF_32_to_64(eos.h.dir) ;
-//         fprintf(stderr," seg = %ld,", ssize);
-//         if(reclen > sizeof(end_of_segment)) fprintf(stderr,"<..>");
         fprintf(stderr,"%s",(reclen > sizeof(end_of_segment)) ? "<>" : "  " ) ;
         fprintf(stderr,"%s meta_dim = %d, seg size = %8ld, dir_offset == %8.8lx, rlm = %d", buffer,
                 meta_dim, segsize, dir_addr, eos.l.head.rlm) ;
@@ -1394,23 +1408,34 @@ void RSF_Dump(char *name, int verbose){
     }else{
       fprintf(stderr,"|%d S(%2.2d) %s\n",eor.rlm, segment, (tlen==reclen) ? ", O.K." : ", RL ERROR") ;
     }
+    if(tabplus == 0 && sor.rt == RT_EOS) segment++ ;
     if(tlen != reclen) goto END ; ;
-    if(sor.rt == RT_DIR && d != NULL && verbose > 0 && tabplus == 0 && d->entries_nused > 0){
-      fprintf(stderr," Directory details :\n") ;
-      meta = (uint32_t *) &(d->entry[0]) ;
+//     if(sor.rt == RT_DIR && d != NULL && verbose > 0 && tabplus == 0 && d->entries_nused > 0){
+    if(sor.rt == RT_DIR && d != NULL && d->entries_nused > 0){
+      if( (verbose > 0 && tabplus == 0) || (verbose > 10) ){
+      fprintf(stderr," Directory  WA(SEG)       WA(FILE)         RL      META (0     MID      LAST)\n") ;
+//       meta = (uint32_t *) &(d->entry[0]) ;
+      e = (char *) &(d->entry[0]) ;
+      meta_dim = d->meta_dim ;
+      dir_entry_size = sizeof(uint32_t)*meta_dim + sizeof(disk_dir_entry) ;
+      l_offset = (tabplus == 0) ? dir_seg_offset : seg_offset ;
       for(i=0 ; i < d->entries_nused ; i++){
-//         fprintf(stderr," [%6d] %4.4x%8.8x %4.4x%8.8x", i, meta[0],meta[1],meta[2],meta[3]);
-        wa = RSF_32_to_64(meta) ;
-        meta = meta + 2 ;
-        rl = RSF_32_to_64(meta) ;
-        meta = meta + 2 ;
-        fprintf(stderr," [%6d] %12.12lx [%12.12lx] %12.12lx", i, wa, wa+seg_offset, rl) ;
+        entry =  (disk_dir_entry *) e ;
+        wa = RSF_32_to_64(entry->wa) ;
+        rl = RSF_32_to_64(entry->rl) ; 
+        meta = &(entry->meta[0]) ;
+        fprintf(stderr," [%6d] %12.12lx [%12.12lx] %12.12lx", i, wa, wa+l_offset, rl) ;
 //         for(j=0 ; j<meta_dim ; j++) fprintf(stderr," %8.8x",meta[j]) ; 
 //         fprintf(stderr,"\n") ;
         fprintf(stderr," %8.8x %8.8x %8.8x\n", meta[0], meta[meta_dim/2] , meta[meta_dim-1]) ;
-        meta = meta + meta_dim ;
+        e += dir_entry_size ;
       }
       fprintf(stderr,"-------------------------------------------------\n") ;
+      }
+      if(d) {
+        free(d) ;
+        d = NULL ;
+      }
     }
     rec++ ;
     rec_offset = lseek(fd, offset = 0, SEEK_CUR) ;  // current position
@@ -1426,3 +1451,12 @@ END :
   close(fd) ;
   fprintf(stderr,"RSF_Dump DEBUG: file '%s' closed, fd = %d, EOF = %lx\n", name, fd, eof) ;
 }
+//       dir_entry_size = sizeof(uint32_t)*meta_dim + sizeof(disk_dir_entry) ;  // size of a file directory entry
+//       e = (char *) &(ddir->entry[0]) ;                      // pointer to first directory entry
+//       for(i = 0 ; i < ddir->entries_nused ; i++){           // loop over entries in disk directory
+//         entry = (disk_dir_entry *) e ;                      // disk directory entry (wa, rl, meta)
+//         wa = RSF_32_to_64(entry->wa) + off_seg ;            // record offset from start of file
+//         rl = RSF_32_to_64(entry->rl) ;                      // record length
+//         meta = &(entry->meta[0]) ;                          // record metadata
+//         e += dir_entry_size ;                               // next directory entry
+//       }
