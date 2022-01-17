@@ -41,6 +41,7 @@
 #define RT_DIR     2
 #define RT_SOS     3
 #define RT_EOS     4
+#define RT_FILE    5
 #define RT_DEL  0x80
 
 #define ZR_SOR  0XF0
@@ -52,6 +53,10 @@
 #define RL_EOSL sizeof(end_of_segment_lo)
 #define RL_EOSH sizeof(end_of_segment_hi)
 #define RL_EOS (RL_EOSL + RL_EOSH)
+
+// number of metadata items used internally and hidden from caller
+// meta[0] : used for record class mask
+#define META_OFFSET 1
 
 // convert a pair of unsigned 32 bit elements into an unsigned 64 bit element
 static inline uint64_t RSF_32_to_64(uint32_t u32[2]){
@@ -74,6 +79,8 @@ static inline void RSF_64_to_32(uint32_t u32[2], uint64_t u64){
 //    <------------------------------------  RL[0] * 2**32 + RL[1] bytes  ------------------------------------>
 //  ZR    : marker
 //  RLM   : length of metadata in 32 bit units (data and directory records)
+//          RLM in a data record MAY be larger than directory length of metadata
+//          (secondary metadata not in directory)
 //        : open-for-write flag (Start of segment record) (0 if not open for write)
 //        : undefined (End of segment or other record)
 //  RT    : record type
@@ -195,6 +202,7 @@ typedef struct{           // compact end of segment (non sparse file)
 typedef struct{           // disk directory entry (one per record)
   uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment
   uint32_t rl[2] ;        // upper[0], lower[1] 32 bits of record length (bytes)
+//uint32_t rc ;           // record class (found in meta[0]
   uint32_t meta[] ;       // dynamic array for entry metadata (meta_dim elements)
 } disk_dir_entry ;
 
@@ -258,6 +266,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   RSF_Match_fn *matchfn ;        // pointer to metadata matching function
   dir_page **pagetable ;         // directory page table (pointers to directory pages for this file)
   uint64_t seg_base ;            // base address in file of the current active segment (0 if only one segment)
+  uint64_t file_wa0 ;            // file address origin (normally 0) (used for file within file access)
   start_of_segment sos0 ;        // start of segment of first segment (as it was read from file)
   start_of_segment sos1 ;        // start of segment of active (new) (compact or sparse) segment
   end_of_segment eos1 ;          // end of segment of active (compact or sparse) segment
@@ -266,6 +275,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   off_t    next_write ;          // file offset from beginning of file for next write operation ( -1 if not defined)
   off_t    cur_pos ;             // current file position from beginning of file ( -1 if not defined)
   uint32_t meta_dim ;            // directory entry metadata size (uint32_t units)
+  uint32_t class_mask ;          // record class mask (for scan/read/...) (by default all ones)
   uint32_t dir_read ;            // number of entries read from file directory 
   uint32_t dir_slots ;           // max number of entries in directory (nb of directory pages * DIR_PAGE_SIZE)
   uint32_t dir_used ;            // number of directory entries in use (all pages belonging to this file/segment)
@@ -288,6 +298,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
   fp->matchfn    = RSF_Default_match ;
   fp->pagetable  = NULL ;
 //   fp->seg_base   =  0 ;
+//   fp->file_wa0   =  0 ;
 //   initialize sos0 here ( the explicit_bzero should do the job of initializing to invalid values)
 //   initialize sos1 here ( the explicit_bzero should do the job of initializing to invalid values)
 //   initialize eos1 here ( the explicit_bzero should do the job of initializing to invalid values)
@@ -296,6 +307,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
   fp->next_write = -1 ;
   fp->cur_pos    = -1 ;
 //   fp->meta_dim   =  0 ;
+  fp->class_mask  =  0xFFFFFFFFu ;
 //   fp->dir_read  =  0 ;
 //   fp->dir_slots  =  0 ;
 //   fp->dir_used   =  0 ;

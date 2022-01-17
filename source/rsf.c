@@ -1307,8 +1307,8 @@ void RSF_Dump(char *name, int verbose){
   int rec = 0 ;
   off_t reclen, datalen, tlen, eoslen ;
   ssize_t nc ;
-  char *tab[] = { " NULL", " DATA", "[DIR]", "[SOS]", "[EOS]", " DELT", "    ", "    ",
-                  " NULL", " DATA", "_dir_", "_sos_", "_eos_", " DELT", "    ", "    "} ;
+  char *tab[] = { "<ERR>", " DATA", "[DIR]", "[SOS]", "[EOS]", " FILE", " DELT", "?????",
+                  "<ERR>", " DATA", "_dir_", "_sos_", "_eos_", " FILE", " DELT", "?????"} ;
   int meta_dim = -1 ;
   uint64_t segsize, ssize ;
   disk_directory *d = NULL ;
@@ -1341,7 +1341,7 @@ void RSF_Dump(char *name, int verbose){
   while(nc > 0) {
     reclen = RSF_32_to_64(sor.rl) ;
     datalen = reclen - sizeof(sor) - sizeof(eor) ;
-    if(sor.rt > 5) sor.rt = 5 ;
+    if(sor.rt > 7) sor.rt = 7 ;
     tabplus = (rec_offset < seg_dir) ? 8 : 0 ;
     snprintf(buffer,sizeof(buffer),"%s %5d [%12.12lx], rl = %6ld, dl = %6ld,",tab[sor.rt+tabplus],  rec, rec_offset, reclen, datalen) ;
     switch(sor.rt){
