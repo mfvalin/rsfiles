@@ -13,6 +13,8 @@ module rsf_mod
   integer, parameter :: RSF_version = RSF_VERSION
   character(len=*), parameter :: RSF_version_string = RSF_VERSION_STRING
 
+  integer, parameter :: RSF_meta_reserved = RSF_META_RESERVED
+
 ! the generic interfaces that follow accept RSF_record or RSF_record_handle arguments
 ! 1 suffixed procedures accept RSF_record (a pointer to RSF_record may be obtained from RSF_New_record)
 ! 2 suffixed procedures accept RSF_record_handle (from RSF_New_record_handle)
@@ -140,7 +142,7 @@ module rsf_mod
     type(RSF_record) ,pointer :: r
     type(RSF_record_handle) :: rh
 
-    rh = RSF_New_record_handle(fh, max_data, C_NULL_PTR, max_data)
+    rh = RSF_New_record_handle(fh, 0, max_data, C_NULL_PTR, max_data)
     call C_F_POINTER(rh%record, r)                          ! handle -> record pointer
   end function RSF_New_record1
 
@@ -153,7 +155,7 @@ module rsf_mod
     type(RSF_record) ,pointer :: r
     type(RSF_record_handle) :: rh
 
-    rh = RSF_New_record_handle(fh, max_data, t, szt)
+    rh = RSF_New_record_handle(fh, 0, max_data, t, szt)
     call C_F_POINTER(rh%record, r)                          ! handle -> record pointer
   end function RSF_New_record2
 

@@ -65,15 +65,16 @@ int the_test(int argc, char **argv){
 #define NDATA 3000
 #define NREC 10
 #define META_SIZE 6
+#define META_DIM 4
 #define NFILES 1
 
 int the_test(int argc, char **argv){
   int my_rank, nprocs ;
   RSF_handle h1 ;
-  int32_t meta_dim = META_SIZE ;
+  int32_t meta_dim = META_DIM ;
   int64_t segsize = 1024*1024 ;
   uint32_t meta[META_SIZE] ;
-  uint32_t mask[META_SIZE] ;
+//   uint32_t mask[META_SIZE] ;
   int32_t data[NDATA+NREC] ;
   size_t data_size ;
   int i, j, ndata ;
@@ -85,12 +86,15 @@ int the_test(int argc, char **argv){
   if(argc < 2) goto ERROR ;
   MPI_Barrier(MPI_COMM_WORLD) ;
   h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);  // open file
+  meta[0] = RT_XDAT ;
+  meta[0] = 64 | (1 << 31) ;
+  for(i = 1 ; i < META_SIZE ; i++) meta[i] = 0xFFFFFF0 + i ;
   for(i = 0 ; i < NREC ; i++){
-    meta[0] = my_rank ;
-    for(j=1 ; j < meta_dim-2 ; j++) {
+    meta[1] = my_rank ;
+    for(j=2 ; j < META_SIZE-1 ; j++) {
       meta[j] = (j << 16) + i + (0xF << 8) ;
     }
-    meta[meta_dim-1] = ( (my_rank +1 ) << 16 ) + nprocs ;
+    meta[META_SIZE-1] = ( (my_rank +1 ) << 16 ) + nprocs ;
     ndata = NDATA + i ;
     data_size = ndata * sizeof(int32_t) ;
     if(ndata > NDATA+NREC){
@@ -100,12 +104,13 @@ int the_test(int argc, char **argv){
     for(j=0 ; j < ndata    ; j++) {
       data[j] = j+i ;
     }
-    RSF_Put_data(h1, meta, data, data_size) ; fprintf(stderr,"PUT %p\n",h1.p);
+    RSF_Put_data(h1, meta, META_SIZE, data, data_size) ; // fprintf(stderr,"PUT %p\n",h1.p);
   }
   MPI_Barrier(MPI_COMM_WORLD) ;
   RSF_Close_file(h1) ;
   MPI_Barrier(MPI_COMM_WORLD) ;
   if(my_rank == nprocs -1){
+    fprintf(stderr,"====== Fusing segments ======\n") ;
     h1 = RSF_Open_file(argv[1], RSF_RW + RSF_FUSE, &meta_dim, "DeMo", NULL);
 //     h1 = RSF_Open_file(argv[1], RSF_RO , &meta_dim, "DeMo", NULL);
     RSF_Dump_dir(h1) ;

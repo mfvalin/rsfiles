@@ -28,6 +28,9 @@
 // RSF_NSEG and RSF_PSEG : deferred implementation
 #define RSF_NSEG    16
 #define RSF_PSEG    32
+
+// META_RESERVED : number of metadata items reserved for internal use
+// meta[0] : used for record class mask
 #endif
 
 #if ! defined(RSF_VERSION)
@@ -38,6 +41,16 @@
 #define RSF_RW       4
 #define RSF_AP       8
 #define RSF_FUSE  1024
+
+#define RSF_META_RESERVED 1
+
+#define RT_NULL    0
+#define RT_DATA    1
+#define RT_DIR     2
+#define RT_SOS     3
+#define RT_EOS     4
+#define RT_XDAT    5
+#define RT_DEL  0x80
 
 #if defined(IN_FORTRAN_CODE)
 
@@ -93,7 +106,7 @@ typedef struct{
   uint64_t data_size ; // actual data size in bytes (may remain 0 in unmanaged records)
   uint64_t max_data ;  // maximum data payload size in bytes
   int64_t rsz ;        // allocated size of RSF_record
-  uint8_t  d[] ;       // dynamic data array
+  uint8_t  d[] ;       // dynamic data array (bytes)
 } RSF_record ;
 
 // typedef struct{   // this struct only contains a pointer to the actual composite record
@@ -174,12 +187,13 @@ interface
   end interface
 
   interface RSF_Put   ! generic put interface
-  function RSF_Put_data(handle, meta, data, data_size) result(key) bind(C,name='RSF_Put_data')
+  function RSF_Put_data(handle, meta, meta_size, data, data_size) result(key) bind(C,name='RSF_Put_data')
     import :: RSF_handle, C_INT32_T, C_PTR, C_SIZE_T, C_INT64_T
     implicit none
     type(RSF_handle), intent(IN), value :: handle
     integer(C_INT32_T), intent(IN), dimension(*) :: meta
     type(C_PTR), value :: data
+    integer(C_INT32_T), intent(IN), value :: meta_size
     integer(C_SIZE_T), intent(IN), value :: data_size
     integer(C_INT64_T) :: key
   end function RSF_Put_data
@@ -196,7 +210,7 @@ interface
 
   interface
 #else
-  int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, void *data, size_t data_size) ;
+  int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, int meta_size, void *data, size_t data_size) ;
   int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
 #endif
 
@@ -259,11 +273,12 @@ interface
 
 #if defined(IN_FORTRAN_CODE)
 ! allocate a new record handle (Fortran)
-  function RSF_New_record_handle(handle, max_data, t, szt) result(rh) bind(C,name='RSF_New_record')
-    import :: RSF_handle, C_INT64_T, RSF_record_handle, C_PTR
+  function RSF_New_record_handle(handle, max_meta, max_data, t, szt) result(rh) bind(C,name='RSF_New_record')
+    import :: RSF_handle, C_INT32_t, C_INT64_T, RSF_record_handle, C_PTR
     implicit none
     type(RSF_handle), intent(IN), value :: handle
     type(C_PTR), value :: t
+    integer(C_INT32_t), intent(IN), value :: max_meta
     integer(C_INT64_T), intent(IN), value :: max_data, szt
     type(RSF_record_handle) :: rh
   end function RSF_New_record_handle
@@ -339,7 +354,7 @@ interface
     integer(C_INT32_T) :: s
   end function RSF_Valid_record_handle
 #else
-  RSF_record *RSF_New_record(RSF_handle h, size_t max_data, void *t, size_t szt) ;  // create pointer to a new allocated record (C)
+  RSF_record *RSF_New_record(RSF_handle h, int32_t max_meta, size_t max_data, void *t, int64_t szt) ;  // create pointer to a new allocated record (C)
   void RSF_Free_record(RSF_record * r) ;                       // free the space allocated to that record
   int32_t RSF_Valid_record(RSF_record *r) ;                    // does this look like a valid record ?
   int64_t RSF_Record_free_space(RSF_record *r) ;               // space available for more data in record allocated by RSF_New_record

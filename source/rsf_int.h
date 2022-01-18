@@ -36,14 +36,6 @@
 // the zr field is 0 for start_of_record and 0xFF for end_of_record
 // max record length is 2**48 - 1 bytes (rl in bytes) (256 TBytes)
 
-#define RT_NULL    0
-#define RT_DATA    1
-#define RT_DIR     2
-#define RT_SOS     3
-#define RT_EOS     4
-#define RT_FILE    5
-#define RT_DEL  0x80
-
 #define ZR_SOR  0XF0
 #define ZR_EOR  0xFF
 
@@ -53,10 +45,6 @@
 #define RL_EOSL sizeof(end_of_segment_lo)
 #define RL_EOSH sizeof(end_of_segment_hi)
 #define RL_EOS (RL_EOSL + RL_EOSH)
-
-// number of metadata items used internally and hidden from caller
-// meta[0] : used for record class mask
-#define META_OFFSET 1
 
 // convert a pair of unsigned 32 bit elements into an unsigned 64 bit element
 static inline uint64_t RSF_32_to_64(uint32_t u32[2]){
@@ -157,7 +145,7 @@ static inline uint64_t RSF_Rl_sos(start_of_segment sos){
               {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
               {{0, sizeof(start_of_segment)}, RT_SOS, 0, ZR_EOR} }
 
-static start_of_segment sos0 = SOS ;
+// static start_of_segment sos0 = SOS ;
 
 typedef struct{           // head part of end_of_segment record (low address in file)
   start_of_record head ;  // rt=4
@@ -275,6 +263,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   off_t    next_write ;          // file offset from beginning of file for next write operation ( -1 if not defined)
   off_t    cur_pos ;             // current file position from beginning of file ( -1 if not defined)
   uint32_t meta_dim ;            // directory entry metadata size (uint32_t units)
+  uint32_t rec_class ;           // record class being writen (default : data class 1) (rightmost 24 bits only)
   uint32_t class_mask ;          // record class mask (for scan/read/...) (by default all ones)
   uint32_t dir_read ;            // number of entries read from file directory 
   uint32_t dir_slots ;           // max number of entries in directory (nb of directory pages * DIR_PAGE_SIZE)
@@ -289,8 +278,10 @@ struct RSF_File{                 // internal (in memory) structure for access to
   int16_t  lastpage ;            // last directory page in use (-1 if not defined)
 } ;
 
+// NOTE : explicit_bzero not available everywhere
 static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File structure
-  explicit_bzero(fp, sizeof(RSF_File)) ;  // this will make a few of the following statements redundant
+//   explicit_bzero(fp, sizeof(RSF_File)) ;  // this will make a few of the following statements redundant
+  bzero(fp, sizeof(RSF_File)) ;  // this will make a few of the following statements redundant
   fp->version    = RSF_VERSION ;
   fp->fd         = -1 ;
 //   fp->next       = NULL ;
@@ -307,6 +298,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
   fp->next_write = -1 ;
   fp->cur_pos    = -1 ;
 //   fp->meta_dim   =  0 ;
+  fp->rec_class   =  0x1 ;
   fp->class_mask  =  0xFFFFFFFFu ;
 //   fp->dir_read  =  0 ;
 //   fp->dir_slots  =  0 ;

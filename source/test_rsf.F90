@@ -53,7 +53,7 @@ program test_rsf
         data(j) = j + i0
       enddo
 !       print 1,':',data(0),data(ndat/2),data(ndat-1)
-      key = RSF_Put(h, meta, C_LOC(data), data_size)
+      key = RSF_Put(h, meta, 0, C_LOC(data), data_size)
       i0 = i0 + 1
     enddo
     call RSF_Dump_dir(h)
@@ -85,7 +85,7 @@ program test_rsf
     do j = 0, ndat-1
       data(j) = j + i0
     enddo
-    key = RSF_Put(h, meta, C_LOC(data), data_size)
+    key = RSF_Put(h, meta, 0, C_LOC(data), data_size)
     i0 = i0 + 1
   enddo
 ! call RSF_Dump("demo0.rsf"//achar(0), 0)
@@ -117,7 +117,7 @@ program test_rsf
   write(ERROR_UNIT,*)"=========== record buffer syntax test ==========="
   max_data = 4096
 
-  rh = RSF_New_record_handle(h, max_data, C_NULL_PTR, max_data)   ! record handle
+  rh = RSF_New_record_handle(h, 0, max_data, C_NULL_PTR, max_data)   ! record handle
   status = RSF_Valid_record(rh)
   mp => RSF_Record_metadata(rh)
   write(ERROR_UNIT,*) "size of metadata mp  =",size(mp),' valid =',status
