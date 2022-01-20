@@ -231,6 +231,7 @@ static int64_t RSF_Scan_directory(RSF_File *fp, int64_t key0, uint32_t *criteria
   int nitems ;
   uint32_t *meta ;
   int scanpage ;
+  uint32_t rt0, class0 ;
 
   *wa = 0 ;                            // precondition for failure, wa and rl set to zero
   *rl = 0 ;
@@ -251,12 +252,20 @@ fprintf(stderr,"DEBUG: key0 points beyond last record\n") ;
 
   nitems = fp->meta_dim ;              // size of metadata in 32 bit elements
   if(nitems <= 0) {
-fprintf(stderr,"DEBUG: nitems <= 0\n") ;
+    fprintf(stderr,"RSF_Scan_directory ERROR: metadata size <= 0 (%d)\n", nitems) ;
     return -1 ;          // invalid metadata size
   }
 
-  scanpage = index >> DIR_PAGE_SHFT ;  // first page to scan
-  index0   = index & DIR_PAGE_MASK ;   // scan from this position in first page
+  scanpage = index >> DIR_PAGE_SHFT ;               // first page to scan
+  index0   = index & DIR_PAGE_MASK ;                // scan from this position in first page
+
+  rt0      = (criteria[0] & mask[0]) & 0xFF ;       // low level record type match target
+  if(rt0 >= RT_DEL) rt0 = 0 ;                       // invalid record type
+  // check for valid type for a data record (RT_DATA, RT_XDAT, 8->RT_DEL-1 are valid)
+  if(rt0 < 8 && rt0 != RT_DATA && rt0 != RT_XDAT) rt0 = 0 ;
+  class0   = criteria[0] >> 8 ;                     // class from criteria
+  if(class0 == 0) class0 = fp->rec_class ;          // if 0, use default class for file
+  class0 &= (mask[0] >> 8) ;                        // apply mask to get final low level record class match target
   for( ; scanpage < fp->dirpages ; scanpage++) {
     cur_page = fp->pagetable[scanpage] ;
     if(cur_page == NULL) {
@@ -267,23 +276,28 @@ fprintf(stderr,"DEBUG: nitems <= 0\n") ;
     meta += nitems * index0 ;           // bump meta to reflect index0 (initial position)
     for(i = index0 ; i < cur_page->nused ; i++){
 
-      // TODO : check 24 bit class mask here (from meta[0])
-      // TODO ? check data record type to prevent firther match ?
+      // check 8 bit data record type to prevent further match ?
+      // check 24 bit class mask here (from meta[0])
+      if( (rt0 != 0) && ( rt0 != (meta[0] & 0xFF) ) ) goto NEXT ;      // record type mismatch
+      if( (class0 != 0) && ( class0 != (meta[0] >> 8) ) ) goto NEXT ;  // class mismatch
       // if class mask not matching, DO NOT ATTEMPT firther match
       // if( (meta[0] & fp->class_mask & 0xFFFFFF) == 0 )
 // fprintf(stderr,"RSF_Scan_directory mask = %8.8x, nitems = %d %d\n",mask[0], nitems, fp->meta_dim);
-      if((*scan_match)(criteria, meta, mask, nitems) == 1 ){   // do we have a match at position i ?
+      // the first element of meta, mask, criteria is ignored, 
+      // nitems -1 items get checked for a match
+      if((*scan_match)(criteria+1, meta+1, mask+1, nitems-1) == 1 ){   // do we have a match at position i ?
         slot = slot + index + 1 ;       // add record number (origin 1) to slot
         *wa = cur_page->warl[i].wa ;    // position of record in file
         *rl = cur_page->warl[i].rl ;    // record length
 // fprintf(stderr,"RSF_Scan_directory slot = %12.12lx\n",slot) ;
         return slot ;                   // return key value containing file slot and record index
       }
+NEXT :
       index++ ;                         // next record
       meta += nitems ;                  // metadata for next record
-    }
+    }  // for loop over index in page
     index0 = 0 ;                        // after first page, start from bottom of page
-  }
+  }  // for loop over scanpage
 fprintf(stderr,"DEBUG: RSF_Scan_directory returns -1\n");
   return -1 ;  // if we get here, no match was found
 }

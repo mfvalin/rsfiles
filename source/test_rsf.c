@@ -92,7 +92,6 @@ int the_test(int argc, char **argv){
   for(i = 0 ; i < NREC ; i++){
     meta[0] = (( (i & 0x3) + 8) & 0xFF) | (1 << ((i & 0x3) + 8)) ;
     if(i >= 8) meta[0] = RT_XDAT | (1 << (RT_XDAT + 8)) ;
-fprintf(stderr,"DEBUG: meta[0] = %8.8x, rt = %8.8x, cl = %8.8x, i = %d\n", meta[0], ((i + 8) & 0xFF), 1 << (i & 0x3), i);
     meta[1] = my_rank ;
     for(j=2 ; j < META_SIZE-1 ; j++) {
       meta[j] = (j << 16) + i + (0xF << 8) ;
