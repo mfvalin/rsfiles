@@ -718,10 +718,10 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, int meta_size, void *data, si
     meta0 = meta[0] ;                                               // save meta[0]
     rt0 = meta0 & 0xFF ;                                            // lower 8 bits
     class0 = meta0 >> 8 ;                                           // upper 24 bits
-    if(rt0 < 5) rt0 = RT_DATA ;                                     // RT_DATA (normal data record) by default
-    // rt0 != RT_DATA and < 5 IS INVALID
+    if(rt0 != RT_XDAT)
+      if(rt0 < 8 || rt0 >= RT_DEL) rt0 = RT_DATA ;                  // RT_DATA (normal data record) by default
     if(class0 == 0) class0 = (fp->rec_class & 0xFFFFFF) ;           // fp->rec_class if unspecified
-    meta[0] = class0 | ( rt0 << 24) ;                               // RT + record class
+    meta[0] = (class0 << 8) | ( rt0 & 0xFF) ;                       // RT + record class
     ((start_of_record *) record->sor)->rt = rt0 ;                   // alter record type in start_of_record
     ((end_of_record *)   record->eor)->rt = rt0 ;                   // alter record type in end_of_record
     nc = write(fp->fd, record->sor, total_size) ;                   // write record structure to disk
@@ -731,10 +731,10 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, int meta_size, void *data, si
     meta0 = meta[0] ;                                               // save meta[0]
     rt0 = meta0 & 0xFF ;                                            // lower 8 bits
     class0 = meta0 >> 8 ;                                           // upper 24 bits
-    if(rt0 < 5) rt0 = RT_DATA ;                                     // RT_DATA (normal data record) by default
-    // rt0 != RT_DATA and < 5 IS INVALID
+    if(rt0 != RT_XDAT)
+      if(rt0 < 8 || rt0 >= RT_DEL) rt0 = RT_DATA ;                  // RT_DATA (normal data record) by default
     if(class0 == 0) class0 = (fp->rec_class & 0xFFFFFF) ;           // fp->rec_class if unspecified
-    meta[0] = class0 | ( rt0 << 24) ;                               // RT + record class
+    meta[0] = (class0 << 8) | ( rt0 & 0xFF) ;                       // RT + record class
     sor.rlm = meta_size ;
     sor.rt = rt0 ;                                                  // alter record type in start_of_record
     RSF_64_to_32(sor.rl, record_size) ;
@@ -1493,7 +1493,7 @@ void RSF_Dump(char *name, int verbose){
 //         for(j=0 ; j<meta_dim ; j++) fprintf(stderr," %8.8x",meta[j]) ; 
 //         fprintf(stderr,"\n") ;
 //         fprintf(stderr," %8.8x %8.8x %8.8x\n", meta[0], meta[meta_dim/2] , meta[meta_dim-1]) ;
-        fprintf(stderr," %2.2x %6.6x", meta[0]>>24, meta[0] & 0xFFFFFF) ;
+        fprintf(stderr," %2.2x %6.6x", meta[0] & 0xFF, meta[0] >> 8) ;
         for(j=1 ; j<meta_dim ; j++) fprintf(stderr," %8.8x", meta[j]) ; fprintf(stderr,"\n") ;
         e += dir_entry_size ;
       }

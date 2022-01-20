@@ -86,10 +86,13 @@ int the_test(int argc, char **argv){
   if(argc < 2) goto ERROR ;
   MPI_Barrier(MPI_COMM_WORLD) ;
   h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);  // open file
-  meta[0] = RT_XDAT ;
-  meta[0] = 64 | (1 << 31) ;
+//   meta[0] = RT_XDAT ;
+//   meta[0] = 127 | (1 << 16) ;
   for(i = 1 ; i < META_SIZE ; i++) meta[i] = 0xFFFFFF0 + i ;
   for(i = 0 ; i < NREC ; i++){
+    meta[0] = (( (i & 0x3) + 8) & 0xFF) | (1 << ((i & 0x3) + 8)) ;
+    if(i >= 8) meta[0] = RT_XDAT | (1 << (RT_XDAT + 8)) ;
+fprintf(stderr,"DEBUG: meta[0] = %8.8x, rt = %8.8x, cl = %8.8x, i = %d\n", meta[0], ((i + 8) & 0xFF), 1 << (i & 0x3), i);
     meta[1] = my_rank ;
     for(j=2 ; j < META_SIZE-1 ; j++) {
       meta[j] = (j << 16) + i + (0xF << 8) ;
