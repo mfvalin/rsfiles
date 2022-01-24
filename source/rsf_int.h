@@ -29,10 +29,11 @@
 // 2   : segment directory record
 // 3   : start of segment record
 // 4   : end of segment record
-// 255 : deleted record
+// 5   : xdata record
+// 128 : deleted record
 //
 // rt:rlm:zr can be used for endianness detection, least significant byte (zr) ZR_xx, most significant byte (rt) RT_xx
-// rt and zr can never be both 0
+// rt and zr can never have the same value (RT = 0->128 , ZR = 240->255)
 // the zr field is 0 for start_of_record and 0xFF for end_of_record
 // max record length is 2**48 - 1 bytes (rl in bytes) (256 TBytes)
 
@@ -187,6 +188,22 @@ typedef struct{           // compact end of segment (non sparse file)
 
 #define EOS { EOSLO , EOSHI }
 
+typedef struct directory_block directory_block ;
+
+struct directory_block{
+  directory_block *next ;
+  uint8_t *cur ;
+  uint8_t *top ;
+  uint8_t entries[] ;
+} ;
+
+typedef struct{
+  uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment (or file)
+  uint32_t rl[2] ;        // upper[0], lower[1] 32 bits of record length (bytes)
+  uint32_t ml ;           // metadata length
+  uint32_t meta[] ;       // metadata
+} vdir_entry ;
+
 typedef struct{           // disk directory entry (one per record)
   uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment
   uint32_t rl[2] ;        // upper[0], lower[1] 32 bits of record length (bytes)
@@ -253,6 +270,8 @@ struct RSF_File{                 // internal (in memory) structure for access to
   char *name ;                   // file name (canonicalized absolute path name)
   RSF_Match_fn *matchfn ;        // pointer to metadata matching function
   dir_page **pagetable ;         // directory page table (pointers to directory pages for this file)
+  directory_block *dir ;         // first "block" of directory data
+  vdir_entry **vdir ;            // pointer to table of vdir_entry pointers
   uint64_t seg_base ;            // base address in file of the current active segment (0 if only one segment)
   uint64_t file_wa0 ;            // file address origin (normally 0) (used for file within file access)
   start_of_segment sos0 ;        // start of segment of first segment (as it was read from file)
@@ -268,6 +287,8 @@ struct RSF_File{                 // internal (in memory) structure for access to
   uint32_t dir_read ;            // number of entries read from file directory 
   uint32_t dir_slots ;           // max number of entries in directory (nb of directory pages * DIR_PAGE_SIZE)
   uint32_t dir_used ;            // number of directory entries in use (all pages belonging to this file/segment)
+  uint32_t vdir_slots ;
+  uint32_t vdir_used ;
   int32_t  slot ;                // slot number of file (-1 if invalid)
   uint32_t nwritten ;            // number of records written (useful when closing after write)
   uint16_t isnew ;               // new segment indicator
@@ -287,7 +308,9 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
 //   fp->next       = NULL ;
 //   fp->name       = NULL ;
   fp->matchfn    = RSF_Default_match ;
-  fp->pagetable  = NULL ;
+//   fp->pagetable  = NULL ;
+//   fp->dir  = NULL ;
+//   fp->vdir  = NULL ;
 //   fp->seg_base   =  0 ;
 //   fp->file_wa0   =  0 ;
 //   initialize sos0 here ( the explicit_bzero should do the job of initializing to invalid values)
@@ -303,6 +326,8 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
 //   fp->dir_read  =  0 ;
 //   fp->dir_slots  =  0 ;
 //   fp->dir_used   =  0 ;
+//   fp->vdir_slots  =  0 ;
+//   fp->vdir_used   =  0 ;
   fp->slot       = -1 ;
 //   fp->nwritten   =  0 ;
 //   fp->isnew      =  0 ;

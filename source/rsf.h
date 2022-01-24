@@ -50,6 +50,7 @@
 #define RT_SOS     3
 #define RT_EOS     4
 #define RT_XDAT    5
+#define RT_VDIR    6
 #define RT_DEL  0x80
 
 #if defined(IN_FORTRAN_CODE)

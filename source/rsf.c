@@ -137,6 +137,63 @@ static int32_t RSF_Lock_sos(RSF_handle h, off_t start, int lock){
 #endif
 // =================================  directory management =================================
 
+// add a new directory block of size s and insert it into the block list of file fp
+// return the address of the block
+static directory_block *RSF_Add_vdir_block(RSF_File *fp, size_t s)
+{
+  directory_block *dd ;
+  size_t sz = sizeof(directory_block) + s ;
+  void *p = calloc(sz, sizeof(char)) ;
+
+  if(p == NULL) return NULL ;
+  dd = (directory_block *) p ;
+  dd->next = fp->dir ;
+  dd->cur = dd->entries ;
+  dd->top = p + sz ;
+  fp->dir = dd ;
+  return dd ;
+}
+
+// add a new variable metadata length entry to directory
+static int RSF_Add_vdir_entry(RSF_File *fp, uint32_t *meta, uint32_t ml, uint64_t wa, uint64_t rl)
+{
+  directory_block *dd ;
+  int needed = sizeof(vdir_entry) + ml * sizeof(uint32_t) ;   // needed size for entry to be added
+  vdir_entry *entry ;
+  int i, index ;
+
+  if(fp == NULL) goto ERROR ;
+  dd = fp->dir ;
+  if(dd == NULL) dd = RSF_Add_vdir_block(fp, 32768 * sizeof(uint32_t)) ; // first time around
+  if(dd == NULL) goto ERROR ;
+  if(fp->vdir_slots == 0) {                                              // first time around
+    fp->vdir_slots = 1024 ;
+    fp->vdir_used = 0 ;
+    fp->vdir = (vdir_entry **) malloc(1024 * sizeof(void *)) ;
+    if(fp->vdir == NULL) goto ERROR ;
+  }
+  // add a block if no room for entry
+  if(dd->top - dd->cur < needed) dd = RSF_Add_vdir_block(fp, 32768 * sizeof(uint32_t)) ;
+  if(dd == NULL) goto ERROR ;
+  entry = (vdir_entry *) dd->cur ;
+  dd->cur += needed ;
+  RSF_64_to_32(entry->wa, wa) ;
+  RSF_64_to_32(entry->rl, rl) ;
+  entry->ml = ml ;
+  for(i = 0 ; i < ml ; i++) entry->meta[i] = meta[i] ;
+
+  // insert into vdir table
+  if(fp->vdir_used >= fp->vdir_slots) {
+    fp->vdir_slots += 1024 ;  // add 1024 slots
+    fp->vdir = (vdir_entry **) realloc(fp->vdir, fp->vdir_slots * sizeof(void *)) ;
+  }
+  fp->vdir[fp->vdir_used] = entry ;
+  fp->vdir_used++ ;
+  return index = 0 ;
+ERROR:
+  return -1 ;
+}
+
 // add a new blank directory page to the list of pages for file pointed to by fp
 // return pointer to new page if successful, NULL if unsuccessful
 static dir_page *RSF_Add_directory_page(RSF_File *fp)
@@ -1370,10 +1427,10 @@ void RSF_Dump(char *name, int verbose){
   start_of_segment sos ;
   end_of_segment   eos ;
   int rec = 0 ;
-  off_t reclen, datalen, tlen, eoslen ;
+  off_t reclen, datalen, tlen, eoslen, read_len ;
   ssize_t nc ;
-  char *tab[] = { "<ERR>", " DATA", "[DIR]", "[SOS]", "[EOS]", " XDAT", " DELT", " RT??",
-                  "<ERR>", " DATA", "_dir_", "_sos_", "_eos_", " XDAT", " DELT", " RT??"} ;
+  char *tab[] = { " NULL", " DATA", "[DIR]", "[SOS]", "[EOS]", " XDAT", " DELT", " RT??",
+                  " NULL", " DATA", "_dir_", "_sos_", "_eos_", " XDAT", " DELT", " RT??"} ;
   int meta_dim = -1 ;
   uint64_t segsize, ssize ;
   disk_directory *d = NULL ;
@@ -1382,7 +1439,7 @@ void RSF_Dump(char *name, int verbose){
   uint64_t dir_entry_size ;
   uint32_t *meta ;
   int i, j ;
-  uint32_t *data, signature ;
+  uint32_t *data ;
   int ndata ;
   off_t dir_offset, dir_addr, rec_offset, offset, seg_offset, dir_seg_offset, l_offset ;
   int64_t wa, rl ;
@@ -1408,12 +1465,13 @@ void RSF_Dump(char *name, int verbose){
     datalen = reclen - sizeof(sor) - sizeof(eor) ;
     tabplus = (rec_offset < seg_dir) ? 8 : 0 ;  // only effective for sos, eos, dir records 
     if(sor.rt > 7) {
-      snprintf(buffer,sizeof(buffer)," RT%2.2x %5d [%12.12lx], rl = %6ld, dl = %6ld,",sor.rt,  rec, rec_offset, reclen, datalen) ;
+      snprintf(buffer,sizeof(buffer)," RT%2.2x %5d [%12.12lx], rl = %6ld(%6ld),",sor.rt,  rec, rec_offset, reclen, datalen) ;
       sor.rt = 7 ;
     }else{
-      snprintf(buffer,sizeof(buffer),"%s %5d [%12.12lx], rl = %6ld, dl = %6ld,",tab[sor.rt+tabplus],  rec, rec_offset, reclen, datalen) ;
+      snprintf(buffer,sizeof(buffer),"%s %5d [%12.12lx], rl = %6ld(%6ld),",tab[sor.rt+tabplus],  rec, rec_offset, reclen, datalen) ;
     }
     switch(sor.rt){
+      case RT_VDIR :
       case RT_DIR :
         dir_offset = lseek(fd, -sizeof(sor), SEEK_CUR) ; 
         d = (disk_directory *) malloc(datalen + sizeof(sor)) ;
@@ -1422,25 +1480,21 @@ void RSF_Dump(char *name, int verbose){
                 d->meta_dim, d->entries_nused, dir_offset, (dir_offset == dir_addr) ? "==": "!=", dir_addr, d->sor.rlm) ;
         break ;
       case 0 :
-      case 6 :
       case 7 :
       case RT_DATA :
       case RT_XDAT :
-        data = (uint32_t *) malloc(datalen) ;
-        nc = read(fd, data, datalen) ;
-        ndata = datalen/sizeof(int32_t) - meta_dim;
-//         fprintf(stderr,"  %s ml = %2d, dl = %6d, %8.8x %8.8x %8.8x", buffer,
-//                 sor.rlm, ndata, data[meta_dim], data[meta_dim+ndata/2], data[meta_dim+ndata-1]) ;
-        fprintf(stderr,"  %s ml = %2d, dl = %6d,", buffer, sor.rlm, ndata) ;
-        signature = 0 ;
+        read_len = sor.rlm * sizeof(uint32_t) ;
+        data = (uint32_t *) malloc(read_len) ;
+        nc = read(fd, data, read_len) ;               // read metadata part
+        lseek(fd, datalen - nc, SEEK_CUR) ;           // skip rest of record
+        ndata = datalen/sizeof(int32_t) - sor.rlm;
+        fprintf(stderr,"  %s DL = %6d, ML = %2d [", buffer, ndata, sor.rlm) ;
         for(i=0 ; i<sor.rlm ; i++) {
           fprintf(stderr," %8.8x", data[i]) ; 
         }
-        for(i=1 ; i<ndata ; i++) signature ^= data[i+sor.rlm] ;
-//         signature = data[meta_dim] ;
-//         for(i=1 ; i<ndata ; i++) signature ^= data[meta_dim + i] ;
-        fprintf(stderr," |%8.8x|", signature) ;
+        fprintf(stderr,"], rlm = %d",sor.rlm) ;
         if(data) free(data) ;
+        data = NULL ;
         break ;
       case RT_SOS :
         lseek(fd, -sizeof(sor), SEEK_CUR) ; 
@@ -1482,10 +1536,10 @@ void RSF_Dump(char *name, int verbose){
     }
     nc = read(fd, &eor, sizeof(eor)) ;
     tlen = RSF_32_to_64(eor.rl) ;
-    if(tlen!=reclen){
+    if(tlen != reclen){
       fprintf(stderr,"|%d rl = %ld|%ld S(%2.2d) %s\n",eor.rlm, reclen, tlen, segment, (tlen==reclen) ? ", O.K." : ", RL ERROR") ;
     }else{
-      fprintf(stderr,"|%d S(%2.2d) %s\n",eor.rlm, segment, (tlen==reclen) ? ", O.K." : ", RL ERROR") ;
+      fprintf(stderr,"|%d S(%2.2d) %s\n",eor.rlm, segment, ", O.K.") ;
     }
     if(tabplus == 0 && sor.rt == RT_EOS) segment++ ;
     if(tlen != reclen) goto END ; ;
