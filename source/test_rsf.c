@@ -111,6 +111,7 @@ int the_test(int argc, char **argv){
   MPI_Barrier(MPI_COMM_WORLD) ;
   RSF_Close_file(h1) ;
   MPI_Barrier(MPI_COMM_WORLD) ;
+// goto END ;
   if(my_rank == nprocs -1){
     fprintf(stderr,"====== Fusing segments ======\n") ;
     h1 = RSF_Open_file(argv[1], RSF_RW + RSF_FUSE, &meta_dim, "DeMo", NULL);

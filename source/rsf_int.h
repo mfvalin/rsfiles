@@ -131,6 +131,8 @@ typedef struct{           // start of segment record, matched by a corresponding
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of segment size (bytes) (including EOS record)
   uint32_t dir[2] ;       // upper[0], lower[1] 32 bits of directory record offset in segment (bytes)
   uint32_t dirs[2] ;      // upper[0], lower[1] 32 bits of directory record size (bytes)
+  uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
+  uint32_t vdirs[2] ;     // upper[0], lower[1] 32 bits of variable directory record size (bytes)
   end_of_record tail ;    // rt=3
 } start_of_segment ;
 
@@ -143,7 +145,7 @@ static inline uint64_t RSF_Rl_sos(start_of_segment sos){
 }
 
 #define SOS { {RT_SOS, 0, ZR_SOR, {0, sizeof(start_of_segment)}},  \
-              {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
+              {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
               {{0, sizeof(start_of_segment)}, RT_SOS, 0, ZR_EOR} }
 
 // static start_of_segment sos0 = SOS ;
@@ -162,6 +164,8 @@ typedef struct{           // tail part of end_of_segment record (high address in
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of sparse segment size (bytes) (0 if not sparse file)
   uint32_t dir[2] ;       // upper[0], lower[1] 32 bits of directory record offset in segment (bytes)
   uint32_t dirs[2] ;      // upper[0], lower[1] 32 bits of directory record size (bytes)
+  uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
+  uint32_t vdirs[2] ;     // upper[0], lower[1] 32 bits of variable directory record size (bytes)
   end_of_record tail ;    // rt=4
 } end_of_segment_hi ;
 
@@ -179,7 +183,8 @@ static inline uint64_t RSF_Rl_eos(end_of_segment_lo eosl, end_of_segment_hi eosh
   return rl1 ;
 }
 
-#define EOSHI { 0xCAFEFADE, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {{0, sizeof(end_of_segment_lo)+sizeof(end_of_segment_hi)}, RT_EOS, 0, ZR_EOR} }
+#define EOSHI { 0xCAFEFADE, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
+              {{0, sizeof(end_of_segment_lo)+sizeof(end_of_segment_hi)}, RT_EOS, 0, ZR_EOR} }
 
 typedef struct{           // compact end of segment (non sparse file)
   end_of_segment_lo l ;   // head part of end_of_segment record
@@ -189,7 +194,8 @@ typedef struct{           // compact end of segment (non sparse file)
 #define EOS { EOSLO , EOSHI }
 
 typedef struct directory_block directory_block ;
-
+#define DIR_BLOCK_SIZE 256
+#define DIR_SLOTS_INCREMENT 8
 struct directory_block{
   directory_block *next ;
   uint8_t *cur ;
@@ -210,6 +216,14 @@ typedef struct{           // disk directory entry (one per record)
 //uint32_t rc ;           // record class (found in meta[0]
   uint32_t meta[] ;       // dynamic array for entry metadata (meta_dim elements)
 } disk_dir_entry ;
+
+typedef struct{              // directory record to be written on disk
+  start_of_record sor ;      // start of record
+  uint32_t entries_nused ;   // number of directory entries used
+  uint32_t meta_dim ;        // size of a directory entry metadata (in 32 bit units)
+  vdir_entry entry[] ;   // open array of directory entries
+//end_of_record eor          // end of record, after last entry, at &entry[entries_nused]
+} disk_vdir ;
 
 typedef struct{              // directory record to be written on disk
   start_of_record sor ;      // start of record
@@ -270,7 +284,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   char *name ;                   // file name (canonicalized absolute path name)
   RSF_Match_fn *matchfn ;        // pointer to metadata matching function
   dir_page **pagetable ;         // directory page table (pointers to directory pages for this file)
-  directory_block *dir ;         // first "block" of directory data
+  directory_block *dirblocks ;   // first "block" of directory data
   vdir_entry **vdir ;            // pointer to table of vdir_entry pointers
   uint64_t seg_base ;            // base address in file of the current active segment (0 if only one segment)
   uint64_t file_wa0 ;            // file address origin (normally 0) (used for file within file access)
@@ -309,7 +323,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
 //   fp->name       = NULL ;
   fp->matchfn    = RSF_Default_match ;
 //   fp->pagetable  = NULL ;
-//   fp->dir  = NULL ;
+//   fp->dirblocks  = NULL ;
 //   fp->vdir  = NULL ;
 //   fp->seg_base   =  0 ;
 //   fp->file_wa0   =  0 ;
