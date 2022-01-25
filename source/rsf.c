@@ -213,17 +213,27 @@ ERROR:
   return -1 ;
 }
 
-static int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint64_t *rl, uint32_t **meta){
+int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint64_t *rl, uint32_t **meta){
   int inxd ;
   int32_t slot, indx ;
   vdir_entry *ventry ;
+  char *error = "unknown" ;
 
   *wa = 0 ;
   *rl = 0 ;
   *meta = NULL ;
-  if( ! (slot = RSF_Valid_file(fp)) ) goto ERROR ;
-  if( (slot + 1) != (key >> 32) )     goto ERROR ;                    // wrong slot for fp
-  if( (indx = (key & 0x7FFFFFFF) - 1) >= fp->vdir_used) goto ERROR ;  // invalid record number
+  if( ! (slot = RSF_Valid_file(fp)) ) {
+    error = "invalid file" ;
+    goto ERROR ;
+  }
+  if( slot != (key >> 32) ){
+    error = "invalid slot" ;
+    goto ERROR ;                    // wrong slot for fp
+  }
+  if( (indx = (key & 0x7FFFFFFF) - 1) >= fp->vdir_used){
+    error = "invalid record number" ;
+    goto ERROR ;  // invalid record number
+  }
 
   ventry = fp->vdir[indx] ;
   *wa = RSF_32_to_64(ventry->wa) ;
@@ -232,6 +242,7 @@ static int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint6
   return ventry->ml ;
 
 ERROR :
+  fprintf(stderr,"RSF_Get_vdir_entry ERROR : %s\n", error) ;
   return -1 ;
 }
 

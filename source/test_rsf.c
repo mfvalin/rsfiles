@@ -4,6 +4,8 @@
 #include <rsf_int.h>
 #define META_SIZE 6
 int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *mask, uint32_t lcrit, uint64_t *wa, uint64_t *rl);
+int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint64_t *rl, uint32_t **meta);
+
 void usage(char **argv){
   fprintf(stderr,"usage : %s rsf_file [verbose]\n",argv[0]);
 }
@@ -17,6 +19,8 @@ int the_test(int argc, char **argv){
   uint32_t mask[1024] ;
   int i ;
   uint64_t wa, rl ;
+  uint32_t *meta ;
+  int32_t ml ;
 
   if(argc < 2){
     usage(argv) ;
@@ -30,7 +34,12 @@ int the_test(int argc, char **argv){
   for(i=0 ; i<33 ; i++){
     if(i == 29) { mask[1] = 0xFFFFFFFF ; criteria[1] = 0xFFFFFFFF ; }
     key = RSF_Scan_vdir(h1.p, key, criteria, mask, (2+i <= 6) ? (2+i) : 6 , &wa, &rl);
-    fprintf(stderr,"i = %2d, key = %16.16lx\n", i, key) ;
+    if( i < 30) {
+      ml = RSF_Get_vdir_entry(h1.p, key, &wa, &rl, &meta);
+    }else{
+      ml = -1 ; wa = 1 ; rl = 1 ;
+    }
+    fprintf(stderr,"i = %2d, key = %16.16lx, wa = %lx, rl = %ld, ml = %d\n", i, key, wa, rl, ml) ;
   }
   fprintf(stderr,"-------------- RSF_Dump_dir --------------\n") ;
   RSF_Dump_dir(h1) ;
