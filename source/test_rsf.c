@@ -20,7 +20,10 @@ int the_test(int argc, char **argv){
   snprintf(command, sizeof(command), "ls -l %s", argv[1]) ;
   system(command) ;
   h1 = RSF_Open_file(argv[1], RSF_RO, &meta_dim, "DeMo", NULL);  // open file
+  fprintf(stderr,"-------------- RSF_Dump_dir --------------\n") ;
   RSF_Dump_dir(h1) ;
+  fprintf(stderr,"-------------- RSF_Dump_vdir --------------\n") ;
+  RSF_Dump_vdir(h1) ;
   return(0) ;
 }
 

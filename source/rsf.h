@@ -262,6 +262,16 @@ interface
 #endif
 
 #if defined(IN_FORTRAN_CODE)
+  subroutine RSF_Dump_vdir(handle) bind(C,name='RSF_Dump_vdir')
+    import :: RSF_handle, C_INT32_T
+    implicit none
+    type(RSF_handle), intent(IN), value :: handle
+  end subroutine RSF_Dump_vdir
+#else
+  void RSF_Dump_vdir(RSF_handle h) ;
+#endif
+
+#if defined(IN_FORTRAN_CODE)
   function RSF_Valid_handle(handle) result (status) bind(C,name='RSF_Valid_handle')
     import :: RSF_handle, C_INT32_T
     implicit none
