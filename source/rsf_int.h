@@ -194,7 +194,7 @@ typedef struct{           // compact end of segment (non sparse file)
 #define EOS { EOSLO , EOSHI }
 
 typedef struct directory_block directory_block ;
-#define DIR_BLOCK_SIZE 256
+#define DIR_BLOCK_SIZE 512
 #define DIR_SLOTS_INCREMENT 8
 struct directory_block{
   directory_block *next ;

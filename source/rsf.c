@@ -136,14 +136,15 @@ static int32_t RSF_Lock_sos(RSF_handle h, off_t start, int lock){
 }
 #endif
 // =================================  directory management =================================
+// =================================  VARIABLE metadata size =================================
 
 // add a new directory block of size s and insert it into the block list of file fp
 // (VARIABLE length metadata directories)
 // return the address of the block
-static directory_block *RSF_Add_vdir_block(RSF_File *fp, size_t s)
+static directory_block *RSF_Add_vdir_block(RSF_File *fp)
 {
   directory_block *dd ;
-  size_t sz = sizeof(directory_block) + s ;
+  size_t sz = sizeof(directory_block) + DIR_BLOCK_SIZE ;
   void *p = calloc(sz, sizeof(char)) ;   // allocate block filled with zeroes
 
   if(p == NULL) return NULL ;
@@ -152,7 +153,7 @@ static directory_block *RSF_Add_vdir_block(RSF_File *fp, size_t s)
   dd->cur = dd->entries ;
   dd->top = p + sz ;
   fp->dirblocks = dd ;
-fprintf(stderr,"RSF_Add_vdir_block DEBUG: added block of size %ld, next = %p, fp->dir = %p\n", s, dd->next, fp->dirblocks) ;
+fprintf(stderr,"RSF_Add_vdir_block DEBUG: added block of size %ld, next = %p, fp->dir = %p\n", sz, dd->next, fp->dirblocks) ;
   return dd ;
 }
 
@@ -160,7 +161,7 @@ fprintf(stderr,"RSF_Add_vdir_block DEBUG: added block of size %ld, next = %p, fp
 static void RSF_Vdir_init(RSF_File *fp){
   int i ;
   if(fp->dirblocks == NULL) {
-    RSF_Add_vdir_block(fp, DIR_BLOCK_SIZE) ;                                // first time around
+    RSF_Add_vdir_block(fp) ;                                // first time around
 fprintf(stderr,"RSF_Vdir_init DEBUG: fp->dir = %p\n", fp->dirblocks) ;
   }
   if(fp->vdir_used >= fp->vdir_slots) {                                     // need more slots, reallocate into larger memory area
@@ -191,7 +192,7 @@ static int64_t RSF_Add_vdir_entry(RSF_File *fp, uint32_t *meta, uint32_t ml, uin
            ml * sizeof(uint32_t) ;     // metadata size
   if(dd->top - dd->cur < needed) {                    // add a block if no room for entry
 // fprintf(stderr,"RSF_Add_vdir_entry DEBUG: need %d, have %d, allocating a new block\n", needed, dd->top - dd->cur) ;
-    dd = RSF_Add_vdir_block(fp, DIR_BLOCK_SIZE) ;
+    dd = RSF_Add_vdir_block(fp) ;
   }
   if(dd == NULL) goto ERROR ;
   entry = (vdir_entry *) dd->cur ;
@@ -211,6 +212,101 @@ static int64_t RSF_Add_vdir_entry(RSF_File *fp, uint32_t *meta, uint32_t ml, uin
 ERROR:
   return -1 ;
 }
+
+static int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint64_t *rl, uint32_t **meta){
+  int inxd ;
+  int32_t slot, indx ;
+  vdir_entry *ventry ;
+
+  *wa = 0 ;
+  *rl = 0 ;
+  *meta = NULL ;
+  if( ! (slot = RSF_Valid_file(fp)) ) goto ERROR ;
+  if( (slot + 1) != (key >> 32) )     goto ERROR ;                    // wrong slot for fp
+  if( (indx = (key & 0x7FFFFFFF) - 1) >= fp->vdir_used) goto ERROR ;  // invalid record number
+
+  ventry = fp->vdir[indx] ;
+  *wa = RSF_32_to_64(ventry->wa) ;
+  *rl = RSF_32_to_64(ventry->rl) ;
+  *meta = &(ventry->meta[0]) ;
+  return ventry->ml ;
+
+ERROR :
+  return -1 ;
+}
+
+// scan vdir (VARIABLE length metadata) of file fp to find a record where (metadata & mask)  matches (criteria & mask)
+// start one position after position indicated by key0 (if key0 == 0, start from beginning of file)
+// return file slot(index) in upper 32 bits, record index in lower 32 bits (both in origin 1)
+// return an invalid key if no match is found
+// criteria, mask are 32 bit arrays
+// lcrit is the length of both criteria and mask arrays
+int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *mask, uint32_t lcrit, uint64_t *wa, uint64_t *rl)
+{
+  int64_t slot ;
+  int index, i, nitems ;
+  vdir_entry *ventry ;
+  uint32_t *meta ;
+  uint32_t rt0, class0 ;
+  RSF_Match_fn *scan_match = NULL ;
+  uint32_t mask0 = 0 ;
+  char *error = "" ;
+  int64_t badkey = -1 ;
+
+  if( ! (slot = RSF_Valid_file(fp)) ){
+    error = "invalid file reference" ;
+    goto ERROR ;      // something wrong. with fp
+  }
+  if( (key0 != 0) && ((key0 >> 32) != slot) ) {
+    error = "invalid slot" ;
+    goto ERROR ;      // slot in key different from file table slot
+  }
+  // slot is origin 1 (zero is invalid)
+  slot <<= 32 ;                             // move to upper 32 bits
+  if( key0 < -1 ) key0 = 0 ;                // first record position for this file
+  index = key0 & 0x7FFFFFFF ;               // starting ordinal for search (one more than what key0 points to)
+  if(index >= fp->vdir_used) {
+    error = "beyond last record" ;
+    goto ERROR ;   // beyond last record
+  }
+
+  scan_match = fp->matchfn ;           // get metadata match function associated to this file
+  if(scan_match == NULL) scan_match = &RSF_Default_match ;     // no function associated, use default function
+
+  mask0 = mask ? mask[0] : 0 ;                      // set mask0 to 0 if mask is NULL
+  rt0      = (criteria[0] & mask0) & 0xFF ;         // low level record type match target
+  if(rt0 >= RT_DEL) rt0 = 0 ;                       // invalid record type
+  // check for valid type for a data record (RT_DATA, RT_XDAT, 8->RT_DEL-1 are valid)
+  if(rt0 < 8 && rt0 != RT_DATA && rt0 != RT_XDAT) rt0 = 0 ;
+
+  class0   = criteria[0] >> 8 ;                     // class from criteria
+  if(class0 == 0) class0 = fp->rec_class ;          // if 0, use default class for file
+  class0 &= (mask0 >> 8) ;                        // apply mask to get final low level record class match target
+
+  for( ; index < fp->vdir_used ; index++ ){
+    ventry = fp->vdir[index] ;
+    meta = ventry->meta ;
+    if( (rt0 != 0) && ( rt0 != (meta[0] & 0xFF) ) )     continue ;   // record type mismatch
+    if( (class0 != 0) && ( class0 != (meta[0] >> 8) ) ) continue ;   // class mismatch
+    // the first element of meta, mask, criteria is ignored, 
+    if(lcrit > (nitems = ventry->ml)) continue ;                     // too many criteria, no match
+    if(nitems > lcrit) nitems = lcrit ;
+    if((*scan_match)(criteria+1, meta+1, mask ? mask+1 : NULL, nitems-1) == 1 ){   // do we have a match at position index ?
+      slot = slot + index + 1 ;                                      // add record number (origin 1) to slot
+      *wa = RSF_32_to_64(ventry->wa) ;                               // address of record in file
+      *rl = RSF_32_to_64(ventry->rl) ;                               // record length
+// fprintf(stderr,"RSF_Scan_directory slot = %12.12lx\n",slot) ;
+      return slot ;                   // return key value containing file slot and record index
+    }
+  }
+//   badkey = slot + fp->vdir_used + 1 ;   // DEBUG : falling through, return an index one beyond last record
+  error = "no match found" ;
+ERROR :
+fprintf(stderr,"RSF_Scan_vdir ERROR : key = %16.16lx, len = %d,  %s\n", key0, lcrit, error) ;
+  return badkey ;
+}
+
+// =================================  FIXED metadata size =================================
 
 // add a new blank directory page to the list of pages for file pointed to by fp
 // return pointer to new page if successful, NULL if unsuccessful

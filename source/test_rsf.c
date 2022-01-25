@@ -1,8 +1,9 @@
 
 #if defined(RSF_OPEN)
 
-#include <rsf.h>
+#include <rsf_int.h>
 #define META_SIZE 6
+int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *mask, uint32_t lcrit, uint64_t *wa, uint64_t *rl);
 void usage(char **argv){
   fprintf(stderr,"usage : %s rsf_file [verbose]\n",argv[0]);
 }
@@ -11,6 +12,11 @@ int the_test(int argc, char **argv){
   char command[1024] ;
   int32_t meta_dim = META_SIZE ;
   RSF_handle h1 ;
+  int64_t key = 0 ;
+  uint32_t criteria[1024] ;
+  uint32_t mask[1024] ;
+  int i ;
+  uint64_t wa, rl ;
 
   if(argc < 2){
     usage(argv) ;
@@ -18,8 +24,14 @@ int the_test(int argc, char **argv){
   }
   if(argc > 2) verbose = atoi(argv[2]) ;
   snprintf(command, sizeof(command), "ls -l %s", argv[1]) ;
-  system(command) ;
+  if(system(command) == 0) fprintf(stderr,"command '%s' O.K.\n", command) ;
   h1 = RSF_Open_file(argv[1], RSF_RO, &meta_dim, "DeMo", NULL);  // open file
+  for(i=0 ; i<1024 ; i++) {mask[i] = 0 ; criteria[i] = 0 ; } ;
+  for(i=0 ; i<33 ; i++){
+    if(i == 29) { mask[1] = 0xFFFFFFFF ; criteria[1] = 0xFFFFFFFF ; }
+    key = RSF_Scan_vdir(h1.p, key, criteria, mask, (2+i <= 6) ? (2+i) : 6 , &wa, &rl);
+    fprintf(stderr,"i = %2d, key = %16.16lx\n", i, key) ;
+  }
   fprintf(stderr,"-------------- RSF_Dump_dir --------------\n") ;
   RSF_Dump_dir(h1) ;
   fprintf(stderr,"-------------- RSF_Dump_vdir --------------\n") ;
