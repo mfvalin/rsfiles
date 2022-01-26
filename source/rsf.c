@@ -508,6 +508,7 @@ static inline void RSF_Get_dir_entry(RSF_File *fp, int64_t key, uint64_t *wa, ui
 
 // read file directory from storage device (all segments) into memory directory
 // return number of records found in segment directories (-1 upon error)
+// this function reads both FIXED and VARIABLE metadata directories
 static int32_t RSF_Read_directory(RSF_File *fp){
   int32_t entries = 0 ;
   int32_t l_entries ;
@@ -553,6 +554,7 @@ static int32_t RSF_Read_directory(RSF_File *fp){
     vdir_size = RSF_32_to_64(sos.vdirs) ;                   // vdir size from start of segment
 fprintf(stderr,"RSF_Read_directory DEBUG: segment %d, at %lx, dir_off = %ld, dir_size = %ld", segments, off_seg, dir_off, dir_size) ;
 fprintf(stderr,", vdir_off = %ld, vdir_size = %ld\n", vdir_off, vdir_size) ;
+    // =======================   VARIABLE metadata length  =======================
     if(vdir_size > 0 && vdir_off > 0) {                     // non empty VARIABLE metadata segment
       fprintf(stderr,"RSF_Read_directory DEBUG: VARIABLE length directory detected size = %ld, off_seg = %lx\n", vdir_size, off_seg);
       l_entries = 0 ;
@@ -572,6 +574,7 @@ fprintf(stderr,", vdir_off = %ld, vdir_size = %ld\n", vdir_off, vdir_size) ;
       vdir = NULL ;                                         // to avoid a double free
       fprintf(stderr,"RSF_Read_directory DEBUG: found %d entries in segment %d\n", l_entries, segments-1) ;
     }
+    // =======================   FIXED metadata length  =======================
     if(dir_size > 0 && dir_off > 0) {                       // non empty FIXED metadata segment
       fprintf(stderr,"RSF_Read_directory DEBUG: FIXED length directory detected size = %ld, off_seg = %lx\n", dir_size, off_seg);
       l_entries = 0 ;
@@ -623,6 +626,7 @@ ERROR:
   return -1 ;  
 }
 
+// =======================   FIXED metadata length  =======================
 // write file directory to storage device from memory directory (fixed length metadata)
 // it is NOT assumed that the file is correctly positioned
 static int64_t RSF_Write_directory(RSF_File *fp){
@@ -686,6 +690,7 @@ fprintf(stderr,"RSF_Write_directory DEBUG : directory written at = %lx\n", fp->n
   return dir_rec_size ;
 }
 
+// =======================   VARIABLE metadata length  =======================
 // write file directory to storage device from memory directory (variable length metadata)
 // it is NOT assumed that the file is correctly positioned
 static int64_t RSF_Write_vdir(RSF_File *fp){
@@ -974,7 +979,10 @@ fprintf(stderr,"RSF_Adjust_data_record DEBUG : data_size = %ld\n", data_size) ;
 // data_size is the size (in bytes) of the data portion
 // if meta is NULL, data is a pointer to a pre allocated record ( RSF_record )
 // RSF_Adjust_data_record may have to be called
-int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, int meta_size, void *data, size_t data_size){
+// lower 16 bits of meta_size : length of metadata written to disk
+// upper 16 bits of meta_size : length of metadata written into vdir (0 means same as disk)
+// written into vdir <= written to disk
+int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *data, size_t data_size){
   RSF_File *fp = (RSF_File *) h.p ;
   uint64_t record_size, directory_record_size, total_size, needed ;
   int64_t slot ;
@@ -983,13 +991,15 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, int meta_size, void *data, si
   RSF_record *record = NULL ;
   ssize_t nc ;
   uint32_t meta0, rt0, class0 ;
+  int32_t vdir_meta = (meta_size >> 16) ;          // keep the upper 16 bits for future reference
 //   int status ;
 
   if( ! RSF_Valid_file(fp) ) goto ERROR ;          // something not O.K. with fp
 
   if( (fp->mode & RSF_RW) != RSF_RW ) goto ERROR ; // file not open in write mode
   if( fp->next_write <= 0) goto ERROR ;            // next_write address is not set
-  if(meta_size == 0) meta_size = fp->meta_dim ;    // get metadata length from file
+  meta_size &= 0xFFFF ;                            // only keep the lower 16 bits
+  if(meta_size == 0) meta_size = fp->meta_dim ;    // get default metadata length from file structure
   if(meta_size < fp->meta_dim) goto ERROR ;        // metadata too small, must be at least fp->meta_dim
 
   record_size = sizeof(start_of_record) +          // start of record
@@ -1017,6 +1027,8 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, int meta_size, void *data, si
 
     record = (RSF_record *) data ;
     total_size = RSF_Adjust_data_record(h, record, data_size) ;     // adjust to actual data size
+    // make meta_size consistent with record->metasize
+    meta_size = record->meta_size ;                                 // vdir_meta will come from the upper 16 bits of the meta_size argument
     meta = record->meta ;                                           // set meta to address of metadata from record
     meta0 = meta[0] ;                                               // save meta[0]
     rt0 = meta0 & 0xFF ;                                            // lower 8 bits
@@ -1052,7 +1064,11 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, int meta_size, void *data, si
 
   // update directory in memory
   slot = RSF_Add_directory_entry(fp, meta, fp->next_write, record_size) ;
-  RSF_Add_vdir_entry(fp, meta, meta_size, fp->next_write, record_size) ;
+  // what is stored in vdir may be shorter than meta_size
+  if(vdir_meta == 0) vdir_meta = meta_size & 0xFFFF ;
+  if(vdir_meta > (meta_size & 0xFFFF)) vdir_meta = meta_size & 0xFFFF ;
+  RSF_Add_vdir_entry(fp, meta, vdir_meta, fp->next_write, record_size) ;
+//   RSF_Add_vdir_entry(fp, meta, meta_size, fp->next_write, record_size) ;
   meta[0] = meta0 ;                                                 // restore meta[0] to original value
 
   fp->next_write += record_size ;         // update fp->next_write and fp->cur_pos

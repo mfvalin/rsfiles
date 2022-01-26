@@ -130,7 +130,7 @@ int the_test(int argc, char **argv){
     for(j=0 ; j < ndata    ; j++) {
       data[j] = j+i ;
     }
-    RSF_Put_data(h1, meta, META_SIZE, data, data_size) ; // fprintf(stderr,"PUT %p\n",h1.p);
+    RSF_Put_data(h1, meta, META_SIZE + (5 << 16), data, data_size) ; // fprintf(stderr,"PUT %p\n",h1.p);
   }
   MPI_Barrier(MPI_COMM_WORLD) ;
   RSF_Close_file(h1) ;

@@ -211,7 +211,7 @@ interface
 
   interface
 #else
-  int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, int meta_size, void *data, size_t data_size) ;
+  int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *data, size_t data_size) ;
   int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
 #endif
 
