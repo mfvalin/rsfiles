@@ -255,7 +255,7 @@ ERROR :
 int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *mask, uint32_t lcrit, uint64_t *wa, uint64_t *rl)
 {
   int64_t slot ;
-  int index, i, nitems ;
+  int index, i, nmeta ;
   vdir_entry *ventry ;
   uint32_t *meta ;
   uint32_t rt0, class0 ;
@@ -300,9 +300,10 @@ int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *
     if( (rt0 != 0) && ( rt0 != (meta[0] & 0xFF) ) )     continue ;   // record type mismatch
     if( (class0 != 0) && ( class0 != (meta[0] >> 8) ) ) continue ;   // class mismatch
     // the first element of meta, mask, criteria is ignored, 
-    if(lcrit > (nitems = ventry->ml)) continue ;                     // too many criteria, no match
-    if(nitems > lcrit) nitems = lcrit ;
-    if((*scan_match)(criteria+1, meta+1, mask ? mask+1 : NULL, nitems-1) == 1 ){   // do we have a match at position index ?
+    nmeta = ventry->ml ;
+//     if(lcrit > nmeta) continue ;                     // too many criteria, no match
+    if(nmeta > lcrit) nmeta = lcrit ;
+    if((*scan_match)(criteria+1, meta+1, mask ? mask+1 : NULL, lcrit-1, nmeta-1) == 1 ){   // do we have a match at position index ?
       slot = slot + index + 1 ;                                      // add record number (origin 1) to slot
       *wa = RSF_32_to_64(ventry->wa) ;                               // address of record in file
       *rl = RSF_32_to_64(ventry->rl) ;                               // record length
@@ -467,7 +468,7 @@ fprintf(stderr,"DEBUG: key0 points beyond last record\n") ;
 // fprintf(stderr,"RSF_Scan_directory mask = %8.8x, nitems = %d %d\n",mask[0], nitems, fp->meta_dim);
       // the first element of meta, mask, criteria is ignored, 
       // nitems -1 items get checked for a match
-      if((*scan_match)(criteria+1, meta+1, mask+1, nitems-1) == 1 ){   // do we have a match at position i ?
+      if((*scan_match)(criteria+1, meta+1, mask+1, nitems-1, nitems-1) == 1 ){   // do we have a match at position i ?
         slot = slot + index + 1 ;       // add record number (origin 1) to slot
         *wa = cur_page->warl[i].wa ;    // position of record in file
         *rl = cur_page->warl[i].rl ;    // record length
@@ -771,37 +772,43 @@ END:
 // =================================  user callable rsf file functions =================================
 
 // match criteria and meta where mask has bits set to 1
+// where mask has bits set to 0, a don't care condition is assumed
 // if mask == NULL, it is not used
-// criteria, mask and meta MUST have the same dimension : nitems
+// criteria and mask have the same dimension : ncrit
+// meta dimension nmeta my be larger than ncrit
+// ncrit > nmeta is undefined and considered as a NO MATCH for now
 // returns 0 in case of no match, 1 otherwise
-int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int nitems)
+int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta)
 {
   int i ;
+  if(ncrit > nmeta) return 0;  // too many criteria, no match
   if(mask != NULL) {
-    for(i = 0 ; i < nitems ; i++){
+    for(i = 0 ; i < ncrit ; i++){
       if( (criteria[i] & mask[i]) != (meta[i] & mask[i]) ) {
-        fprintf(stderr,"DEBUG: rsf_default_match, MISMATCH at %d, criteria = %8.8x, meta = %8.8x, mask = %8.8x, nitems = %d\n",i, criteria[i], meta[i], mask[i], nitems) ;
+        fprintf(stderr,"DEBUG: rsf_default_match, MISMATCH at %d, criteria = %8.8x, meta = %8.8x, mask = %8.8x, ncrit = %d, nmeta = %d\n",
+                i, criteria[i], meta[i], mask[i], ncrit, nmeta) ;
         return 0 ;  // mismatch, no need to go any further
       }
     }
   }else{
-    for(i = 0 ; i < nitems ; i++){
+    for(i = 0 ; i < ncrit ; i++){
       if( criteria[i] != meta[i] ) return 0 ;  // mismatch, no need to go any further
     }
   }
 //   fprintf(stderr,"DEBUG: rsf_default_match, nitems = %d, MATCH\n", nitems);
-  return 1 ;
+  return 1 ;   // if we get here, we have a match
 }
 
 // same as RSF_Default_match but ignores mask
-int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int nitems)
+int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta)
 {
   int i ;
-//   fprintf(stderr,"DEBUG: calling rsf_base_match, nitems = %d\n", nitems);
-  for(i = 0 ; i < nitems ; i++){
+  if(ncrit > nmeta) return 0;  // too many criteria, no match
+//   fprintf(stderr,"DEBUG: calling rsf_base_match, ncrit = %d\n", ncrit);
+  for(i = 0 ; i < ncrit ; i++){
     if( criteria[i] != meta[i] ) return 0 ;  // mismatch, no need to go any further
   }
-  return 1 ;
+  return 1 ;   // if we get here, we have a match
 }
 
 // is this a vlid data record structure ?
@@ -1067,7 +1074,7 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
   // what is stored in vdir may be shorter than meta_size
   if(vdir_meta == 0) vdir_meta = meta_size & 0xFFFF ;
   if(vdir_meta > (meta_size & 0xFFFF)) vdir_meta = meta_size & 0xFFFF ;
-  RSF_Add_vdir_entry(fp, meta, vdir_meta, fp->next_write, record_size) ;
+  slot = RSF_Add_vdir_entry(fp, meta, vdir_meta, fp->next_write, record_size) ;
 //   RSF_Add_vdir_entry(fp, meta, meta_size, fp->next_write, record_size) ;
   meta[0] = meta0 ;                                                 // restore meta[0] to original value
 
@@ -1079,6 +1086,79 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
   return slot ;
 ERROR :
   return 0 ;
+}
+
+int64_t RSF_Put_file(RSF_handle h, char *filename, char *alias){
+  RSF_File *fp = (RSF_File *) h.p ;
+  start_of_record sor = SOR ;      // start of data record
+  end_of_record   eor = EOR ;      // end of data record
+  int fd ;
+  int64_t slot = -1 ;              // precondition for error
+  int64_t index = -1 ;             // precondition for error
+  uint64_t record_size ;           // sor + metadata + file + eor
+  int32_t vdir_meta ;              // metadata size
+  off_t file_size = 0 ;
+  off_t file_size2 = 0 ;
+  size_t name_len = 1024 ;         // maximum allowed name length
+  ssize_t nc ;
+  int i ;
+  struct mmeta{
+  uint32_t meta0 ;
+  uint32_t rl[2] ;
+  char name[] ;
+  } *meta ;
+
+  if( ! (slot = RSF_Valid_file(fp)) ) goto ERROR ; // something wrong with fp
+  slot <<= 32 ;
+  if( (fp->mode & RSF_RW) != RSF_RW ) goto ERROR ; // file not open in write mode
+  if( fp->next_write <= 0) goto ERROR ;            // next_write address is not set
+
+  fd = open(filename, O_RDONLY) ;
+  if(fd < 0) goto ERROR ;
+  file_size = lseek(fd, file_size2, SEEK_END) ; // get file size
+  file_size2 = ((file_size + 3) & 0x3) ;   // file size rounded up to a multiple of 4
+  if(alias == NULL) alias = filename ;
+  name_len = strnlen(alias, name_len) ;    // length of file name (or alias)
+  vdir_meta = 1 +                          // meta[0] record type and class
+              2 +                          // file size (2 x 32 bit integers)
+              ((name_len + 3) >> 2) +      // name length rounded up to a multiple of 4 characters
+              1 ;                          // 4 null chars
+  record_size = sizeof(start_of_record) + 
+                vdir_meta * sizeof(uint32_t) +   // metadata size
+                file_size2 +                     // file size rounded up to a multiple of 4
+                sizeof(end_of_record) ;
+  sor.rt = RT_FILE ;
+  sor.rlm = vdir_meta ;
+  RSF_64_to_32(sor.rl, record_size) ;
+  nc = write(fp->fd, &sor, sizeof(start_of_record)) ;
+
+  meta = (struct mmeta *) calloc(vdir_meta, sizeof(uint32_t)) ;  // allocate zero filled structure
+  meta->meta0 = RT_FILE + (RT_FILE_CLASS << 8) ;          // record type and class
+  RSF_64_to_32(meta->rl, file_size) ;                     // record size
+  for(i=0 ; i<name_len ; i++) meta->name[i] = alias[i] ;  // copy filename into meta->name
+  nc = write(fp->fd, meta, vdir_meta * sizeof(uint32_t)) ;
+  free(meta) ;
+
+//   nc = RSF_Copy_file(fp->fd, fd, file_size) ;
+  lseek(fp->fd, file_size2, SEEK_CUR) ;   // will be replaced by RSF_Copy_file
+
+  eor.rt = RT_FILE ;
+  RSF_64_to_32(eor.rl, record_size) ;
+  eor.rlm = vdir_meta ;
+  nc = write(fp->fd, &eor, sizeof(start_of_record)) ;
+
+  close(fd) ;
+
+  index = RSF_Add_vdir_entry(fp, (uint32_t *) meta, vdir_meta, fp->next_write, record_size) ; // add to directory
+
+  fp->next_write  = lseek(fp->fd, 0l, SEEK_CUR) ;
+  fp->cur_pos = fp->next_write ;
+  fp->last_op = OP_WRITE ;                // last operation was write
+  fp->nwritten += 1 ;                     // update unmber of writes
+  return index ;
+
+ERROR:
+  return index ;
 }
 
 // write pre allocated data record to file
@@ -1709,8 +1789,8 @@ void RSF_Dump(char *name, int verbose){
   int rec = 0 ;
   off_t reclen, datalen, tlen, eoslen, read_len ;
   ssize_t nc ;
-  char *tab[] = { " NULL", " DATA", "[DIR]", "[SOS]", "[EOS]", " XDAT", "[VLD]", " RT??",
-                  " NULL", " DATA", "_dir_", "_sos_", "_eos_", " XDAT", "_vld_", " RT??"} ;
+  char *tab[] = { " NULL", " DATA", "[DIR]", "[SOS]", "[EOS]", " XDAT", "[VLD]", " FILE",
+                  " NULL", " DATA", "_dir_", "_sos_", "_eos_", " XDAT", "_vld_", " FILE"} ;
   int meta_dim = -1 ;
   uint64_t segsize, ssize ;
   disk_directory *d = NULL ;
@@ -1749,7 +1829,7 @@ void RSF_Dump(char *name, int verbose){
     tabplus = ((rec_offset < seg_dir) && (rec_offset < seg_vdir)) ? 8 : 0 ;  // only effective for sos, eos, dir records 
     if(sor.rt > 7) {
       snprintf(buffer,sizeof(buffer)," RT%2.2x %5d [%12.12lx], rl = %6ld(%6ld),",sor.rt,  rec, rec_offset, reclen, datalen) ;
-      sor.rt = 7 ;
+      sor.rt = 0 ;
     }else{
       snprintf(buffer,sizeof(buffer),"%s %5d [%12.12lx], rl = %6ld(%6ld),",tab[sor.rt+tabplus],  rec, rec_offset, reclen, datalen) ;
     }

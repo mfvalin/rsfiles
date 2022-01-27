@@ -51,7 +51,11 @@
 #define RT_EOS     4
 #define RT_XDAT    5
 #define RT_VDIR    6
+#define RT_FILE    7
 #define RT_DEL  0x80
+
+#define RT_DATA_CLASS 1
+#define RT_FILE_CLASS 2
 
 #if defined(IN_FORTRAN_CODE)
 
@@ -115,7 +119,7 @@ typedef struct{
 // } RSF_record_handle ;
 
 // metadata matching function (normally supplied by application)
-typedef int32_t RSF_Match_fn(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n) ;
+typedef int32_t RSF_Match_fn(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta) ;
 
 #endif
 
@@ -124,24 +128,24 @@ interface
 #endif
 
 #if defined(IN_FORTRAN_CODE)
-  function RSF_Default_match(criteria, meta, mask, n) result(status) bind(C,name='RSF_Default_match')
+  function RSF_Default_match(criteria, meta, mask, ncrit, nmeta) result(status) bind(C,name='RSF_Default_match')
     import :: C_INT32_T
     implicit none
     integer(C_INT32_T), intent(IN), dimension(*) :: criteria, meta, mask
-    integer(C_INT32_T), intent(IN), value :: n
+    integer(C_INT32_T), intent(IN), value :: ncrit, nmeta
     integer(C_INT32_T) :: status
   end function RSF_Default_match
 
-  function RSF_Base_match(criteria, meta, mask, n) result(status) bind(C,name='RSF_Base_match')
+  function RSF_Base_match(criteria, meta, mask, ncrit, nmeta) result(status) bind(C,name='RSF_Base_match')
     import :: C_INT32_T
     implicit none
     integer(C_INT32_T), intent(IN), dimension(*) :: criteria, meta, mask
-    integer(C_INT32_T), intent(IN), value :: n
+    integer(C_INT32_T), intent(IN), value :: ncrit, nmeta
     integer(C_INT32_T) :: status
   end function RSF_Base_match
 #else
-  int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n) ;
-  int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n) ;  // ignores mask
+  int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta) ;
+  int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta) ;  // ignores mask
 #endif
 
 #if defined(IN_FORTRAN_CODE)

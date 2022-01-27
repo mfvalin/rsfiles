@@ -33,7 +33,7 @@ int the_test(int argc, char **argv){
   for(i=0 ; i<1024 ; i++) {mask[i] = 0 ; criteria[i] = 0 ; } ;
   for(i=0 ; i<33 ; i++){
     if(i == 29) { mask[1] = 0xFFFFFFFF ; criteria[1] = 0xFFFFFFFF ; }
-    key = RSF_Scan_vdir(h1.p, key, criteria, mask, (2+i <= 6) ? (2+i) : 6 , &wa, &rl);
+    key = RSF_Scan_vdir(h1.p, key, criteria, mask, (2+i <= 5) ? (2+i) : 5 , &wa, &rl);
     if( i < 30) {
       ml = RSF_Get_vdir_entry(h1.p, key, &wa, &rl, &meta);
     }else{
@@ -130,7 +130,8 @@ int the_test(int argc, char **argv){
     for(j=0 ; j < ndata    ; j++) {
       data[j] = j+i ;
     }
-    RSF_Put_data(h1, meta, META_SIZE + (5 << 16), data, data_size) ; // fprintf(stderr,"PUT %p\n",h1.p);
+    // metadata in vdir shorter by 1 than metadata in record
+    RSF_Put_data(h1, meta, META_SIZE + ((META_SIZE-1) << 16), data, data_size) ; // fprintf(stderr,"PUT %p\n",h1.p);
   }
   MPI_Barrier(MPI_COMM_WORLD) ;
   RSF_Close_file(h1) ;

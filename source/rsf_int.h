@@ -335,7 +335,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
   fp->next_write = -1 ;
   fp->cur_pos    = -1 ;
 //   fp->meta_dim   =  0 ;
-  fp->rec_class   =  0x1 ;
+  fp->rec_class   =  RT_DATA_CLASS ;
   fp->class_mask  =  0xFFFFFFFFu ;
 //   fp->dir_read  =  0 ;
 //   fp->dir_slots  =  0 ;
