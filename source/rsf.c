@@ -712,7 +712,7 @@ static int64_t RSF_Write_vdir(RSF_File *fp){
 fprintf(stderr,"RSF_Write_vdir DEBUG : fp->vdir = %p\n", fp->vdir) ;
   if(fp->vdir == NULL) return 0 ;
   dir_rec_size = sizeof(disk_vdir) + sizeof(end_of_record) ;                      // fixed part + end_of_record
-  for(i = fp->dir_read ; i < fp->dir_used ; i++){                                 // add entries (wa/rl/ml/metadata)
+  for(i = fp->dir_read ; i < fp->vdir_used ; i++){                                 // add entries (wa/rl/ml/metadata)
     where = fp->vdir[i] ;
 fprintf(stderr,"RSF_Write_vdir DEBUG : record %d, where = %p, ml = %d\n", i, where, fp->vdir[i]->ml) ;
     dir_rec_size += ( sizeof(vdir_entry) + fp->vdir[i]->ml * sizeof(uint32_t) );  // fixed part + metadata
@@ -729,7 +729,7 @@ fprintf(stderr,"RSF_Write_vdir DEBUG : p = %p\n", p) ;
   vdir->sor.zr = ZR_SOR ;                            // SOR marker
 
   vdir->meta_dim = 1 ;                               // indicates variable length metadata
-  vdir->entries_nused = fp->dir_used - fp->dir_read ;
+  vdir->entries_nused = fp->vdir_used - fp->dir_read ;
 
   eorp->rt = RT_VDIR ;                               // adjust end or record
   eorp->rlm = 1 ;                                    // indicates variable length metadata
@@ -741,9 +741,10 @@ fprintf(stderr,"RSF_Write_vdir DEBUG : p = %p\n", p) ;
 // do not start at entry # 0, but entry # fp->dir_read (only write entries from "active" segment)
 // when "fusing" segments, fp->dir_read will be reset to 0
 fprintf(stderr,"RSF_Write_vdir DEBUG : skipping %d records, segment base = %lx\n", fp->dir_read, fp->seg_base) ;
-fprintf(stderr,"RSF_Write_vdir DEBUG : dir_rec_size = %ld\n", dir_rec_size) ;
+fprintf(stderr,"RSF_Write_vdir DEBUG : dir_rec_size = %ld ", dir_rec_size) ;
+fprintf(stderr,"RSF_Write_vdir DEBUG : dir_read = %d, vdir_used = %d\n", fp->dir_read, fp->vdir_used) ;
 // return 0 ;
-  for(i = fp->dir_read ; i < fp->dir_used ; i++){             // fill from in core directory
+  for(i = fp->dir_read ; i < fp->vdir_used ; i++){             // fill from in core directory
     entry = (vdir_entry *) e ;
     dir_entry_size = sizeof(vdir_entry) + fp->vdir[i]->ml * sizeof(uint32_t) ;
     memcpy(entry, fp->vdir[i], dir_entry_size) ;   // copy entry from memory directory
@@ -1088,7 +1089,7 @@ ERROR :
   return 0 ;
 }
 
-int64_t RSF_Put_file(RSF_handle h, char *filename, char *alias){
+int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta_size){
   RSF_File *fp = (RSF_File *) h.p ;
   start_of_record sor = SOR ;      // start of data record
   end_of_record   eor = EOR ;      // end of data record
@@ -1096,68 +1097,90 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, char *alias){
   int64_t slot = -1 ;              // precondition for error
   int64_t index = -1 ;             // precondition for error
   uint64_t record_size ;           // sor + metadata + file + eor
-  int32_t vdir_meta ;              // metadata size
-  off_t file_size = 0 ;
-  off_t file_size2 = 0 ;
+  int32_t vdir_meta = (meta_size >> 16) ;          // keep the upper 16 bits for future use
+  off_t file_size0, file_size2 ;
   size_t name_len = 1024 ;         // maximum allowed name length
   ssize_t nc ;
   int i ;
-  struct mmeta{
   uint32_t meta0 ;
+  int extra_meta ;
+  struct mmeta{
   uint32_t rl[2] ;
   char name[] ;
-  } *meta ;
+  } *fmeta ;
+  uint32_t *dir_meta, *file_meta ;
+
+  dir_meta = NULL ; file_meta = NULL ; fmeta = NULL ;
 
   if( ! (slot = RSF_Valid_file(fp)) ) goto ERROR ; // something wrong with fp
   slot <<= 32 ;
   if( (fp->mode & RSF_RW) != RSF_RW ) goto ERROR ; // file not open in write mode
   if( fp->next_write <= 0) goto ERROR ;            // next_write address is not set
-
+  meta_size &= 0xFFFF ;                            // only keep the lower 16 bits
   fd = open(filename, O_RDONLY) ;
+fprintf(stderr,"RSF_Put_file DEBUG : file = '%s', fd = %d\n", filename, fd) ;
   if(fd < 0) goto ERROR ;
-  file_size = lseek(fd, file_size2, SEEK_END) ; // get file size
-  file_size2 = ((file_size + 3) & 0x3) ;   // file size rounded up to a multiple of 4
-  if(alias == NULL) alias = filename ;
-  name_len = strnlen(alias, name_len) ;    // length of file name (or alias)
-  vdir_meta = 1 +                          // meta[0] record type and class
-              2 +                          // file size (2 x 32 bit integers)
-              ((name_len + 3) >> 2) +      // name length rounded up to a multiple of 4 characters
-              1 ;                          // 4 null chars
+  file_size0 = lseek(fd, file_size2, SEEK_END) ;   // get file size
+  file_size2 = ((file_size0 + 3) & (~0x3)) ;       // file size rounded up to a multiple of 4
+  name_len = strnlen(filename, name_len) ;         // length of file name
+
+  extra_meta = 2 +                                 // file size (2 x 32 bit integers)
+               ((name_len + 4) >> 2) ;             // name length + 1 rounded up to a multiple of 4 characters
+  fmeta = (struct mmeta *) calloc(extra_meta, sizeof(uint32_t)) ;  // extra metadata
+  RSF_64_to_32(fmeta->rl, file_size0) ;                     // record size
+  fmeta->name[0] = '\0' ;
+  for(i=0 ; i<name_len ; i++) fmeta->name[i+1] = filename[i] ;  // copy filename into fmeta->name
+
+  if(vdir_meta == 0) vdir_meta = meta_size ;
+  if(vdir_meta > meta_size) vdir_meta = meta_size ;
+  dir_meta = (uint32_t *) calloc(vdir_meta + extra_meta, sizeof(uint32_t)) ; // metadata for in memory directory
+  memcpy(dir_meta, meta, vdir_meta * sizeof(uint32_t)) ;        // copy meta[0 -> vdir_meta-1] into dir_meta
+  memcpy(dir_meta + vdir_meta, (uint32_t *) fmeta, extra_meta * sizeof(uint32_t)) ;    // copy extra metadata into dir_meta
+
+  file_meta = (uint32_t *) calloc(meta_size + extra_meta, sizeof(uint32_t)) ; // metadata for record in file
+  memcpy(file_meta, meta, meta_size * sizeof(uint32_t)) ;        // copy meta[0 -> meta_size-1] into file_meta
+  memcpy(file_meta + meta_size, (uint32_t *) fmeta, extra_meta * sizeof(uint32_t)) ; // copy extra metadata into file_meta
+
   record_size = sizeof(start_of_record) + 
-                vdir_meta * sizeof(uint32_t) +   // metadata size
+                meta_size * sizeof(uint32_t) +   // file record metadata size
+                extra_meta * sizeof(uint32_t) +  // extra metadata (unrounded file size and file name)
                 file_size2 +                     // file size rounded up to a multiple of 4
                 sizeof(end_of_record) ;
   sor.rt = RT_FILE ;
-  sor.rlm = vdir_meta ;
+  sor.rlm = meta_size + extra_meta ;
   RSF_64_to_32(sor.rl, record_size) ;
+fprintf(stderr,"RSF_Put_file DEBUG : name = '%s', size = %ld(%ld), vdir_meta = %d, extra_meta = %d, meta_size = %d, record_size = %ld\n", 
+        filename, file_size0, file_size2, vdir_meta, extra_meta, meta_size, record_size);
+// close(fd) ;
+// goto ERROR ;
   nc = write(fp->fd, &sor, sizeof(start_of_record)) ;
 
-  meta = (struct mmeta *) calloc(vdir_meta, sizeof(uint32_t)) ;  // allocate zero filled structure
-  meta->meta0 = RT_FILE + (RT_FILE_CLASS << 8) ;          // record type and class
-  RSF_64_to_32(meta->rl, file_size) ;                     // record size
-  for(i=0 ; i<name_len ; i++) meta->name[i] = alias[i] ;  // copy filename into meta->name
-  nc = write(fp->fd, meta, vdir_meta * sizeof(uint32_t)) ;
-  free(meta) ;
+  meta0 = RT_FILE + (RT_FILE_CLASS << 8) ;          // record type and class
+  file_meta[0] = meta0 ;
+  nc = write(fp->fd, file_meta, (meta_size + extra_meta) * sizeof(uint32_t)) ;
 
 //   nc = RSF_Copy_file(fp->fd, fd, file_size) ;
   lseek(fp->fd, file_size2, SEEK_CUR) ;   // will be replaced by RSF_Copy_file
 
   eor.rt = RT_FILE ;
   RSF_64_to_32(eor.rl, record_size) ;
-  eor.rlm = vdir_meta ;
+  eor.rlm = meta_size + extra_meta ;
   nc = write(fp->fd, &eor, sizeof(start_of_record)) ;
 
   close(fd) ;
 
-  index = RSF_Add_vdir_entry(fp, (uint32_t *) meta, vdir_meta, fp->next_write, record_size) ; // add to directory
+  dir_meta[0] = meta0 ;
+  index = RSF_Add_vdir_entry(fp, (uint32_t *) dir_meta, vdir_meta + extra_meta, fp->next_write, record_size) ; // add to directory
 
   fp->next_write  = lseek(fp->fd, 0l, SEEK_CUR) ;
   fp->cur_pos = fp->next_write ;
   fp->last_op = OP_WRITE ;                // last operation was write
   fp->nwritten += 1 ;                     // update unmber of writes
-  return index ;
 
 ERROR:
+  if(fmeta) free(fmeta) ;
+  if(file_meta) free(file_meta) ;
+  if(dir_meta) free(dir_meta) ;
   return index ;
 }
 
@@ -1810,6 +1833,11 @@ void RSF_Dump(char *name, int verbose){
   int segment = 0 ;
   uint64_t eof ;
   char buffer[4096] ;
+  char *fname ;
+  char *temp, *temp0 ;
+  uint32_t *tempm ;
+  uint32_t nmeta ;
+  uint64_t temps ;
 
   if(fd < 0) return ;
   eof = lseek(fd, 0L, SEEK_END) ;
@@ -1844,7 +1872,6 @@ void RSF_Dump(char *name, int verbose){
                 d->meta_dim, d->entries_nused, dir_offset, (dir_offset == dir_addr) ? "==": "!=", dir_addr, d->sor.rlm) ;
         break ;
       case 0 :
-      case 7 :
       case RT_DATA :
       case RT_XDAT :
         read_len = sor.rlm * sizeof(uint32_t) ;
@@ -1857,6 +1884,30 @@ void RSF_Dump(char *name, int verbose){
           fprintf(stderr," %8.8x", data[i]) ; 
         }
         fprintf(stderr,"], rlm = %d",sor.rlm) ;
+        if(data) free(data) ;
+        data = NULL ;
+        break ;
+      case RT_FILE :
+        read_len = sor.rlm * sizeof(uint32_t) ;
+        data = (uint32_t *) malloc(read_len) ;
+        nc = read(fd, data, read_len) ;               // read metadata part
+        temp0 = (char *) data ;                       // start of metadata
+        temp = temp0 + read_len -1 ;                  // end of metadata
+        while(*temp && (temp > temp0)) temp-- ;       // skip trailing nulls
+        while(temp[-1] && (temp > temp0)) temp-- ;    // back until null is found
+        temp0 = temp -1 ;
+        tempm = (uint32_t *) temp ;
+        nmeta = tempm - data ;
+        temps = RSF_32_to_64((data+nmeta-2)) ;
+        lseek(fd, datalen - nc, SEEK_CUR) ;           // skip rest of record
+        ndata = datalen/sizeof(int32_t) - sor.rlm;
+        fprintf(stderr,"  %s DL = %6d, ML = %2d [ %8.8x ", buffer, ndata, sor.rlm, data[0]) ;
+        for(j=1 ; j<nmeta-2 ; j++) fprintf(stderr,"%8.8x ", data[j]) ;
+        fprintf(stderr,"] '%s'[%ld]", temp, temps) ;
+//         for(i=0 ; i<sor.rlm ; i++) {
+//           fprintf(stderr," %8.8x", data[i]) ; 
+//         }
+        fprintf(stderr,", rlm = %d",sor.rlm) ;
         if(data) free(data) ;
         data = NULL ;
         break ;
@@ -1922,15 +1973,29 @@ void RSF_Dump(char *name, int verbose){
           meta = &(ventry->meta[0]) ;
           fprintf(stderr," [%6d] %12.12lx [%12.12lx] %12.12lx", i, wa, wa+l_offset, rl) ;
           fprintf(stderr," %2.2x %6.6x", meta[0] & 0xFF, meta[0] >> 8) ;
-          for(j=1 ; j<ventry->ml ; j++) fprintf(stderr," %8.8x", meta[j]) ;
-          fprintf(stderr,"\n") ;
+          if( (meta[0] & 0xFF) != RT_FILE){
+            for(j=1 ; j<ventry->ml ; j++) fprintf(stderr," %8.8x", meta[j]) ;
+            fprintf(stderr,"\n") ;
+          }else{
+            temp0 = (char *) meta ;
+            temp = temp0 + (ventry->ml * sizeof(uint32_t)) -1 ;
+            while(*temp && (temp > temp0)) temp-- ;       // skip trailing nulls
+            while(temp[-1] && (temp > temp0)) temp-- ;    // back until null is found
+            temp0 = temp -1 ;
+            tempm = (uint32_t *) temp ;
+            nmeta = tempm - meta ;
+            temps = RSF_32_to_64((meta+nmeta-2)) ;
+//             fprintf(stderr," %p %p",tempm, meta) ;
+            for(j=1 ; j<nmeta-2 ; j++) fprintf(stderr," %8.8x", meta[j]) ;
+            fprintf(stderr," '%s' [%ld]\n", temp, temps) ;
+          }
           e = e + sizeof(vdir_entry) + ventry->ml * sizeof(uint32_t) ;
         }
         fprintf(stderr,"-------------------------------------------------\n") ;
       }
     }
     if(sor.rt == RT_DIR && d != NULL && d->entries_nused > 0){
-      if( (verbose > 0 && tabplus == 0) || (verbose > 10) ){
+      if( (verbose > 100 && tabplus == 0) || (verbose > 100) ){
         fprintf(stderr," Directory  WA(SEG)       WA(FILE)         RL      RT CLASS  META \n") ;
         e = (char *) &(d->entry[0]) ;
         meta_dim = d->meta_dim ;

@@ -55,7 +55,7 @@
 #define RT_DEL  0x80
 
 #define RT_DATA_CLASS 1
-#define RT_FILE_CLASS 2
+#define RT_FILE_CLASS 0x80000
 
 #if defined(IN_FORTRAN_CODE)
 
@@ -219,6 +219,10 @@ interface
   int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
 #endif
 
+#if defined(IN_FORTRAN_CODE)
+#else
+  int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta_size) ;
+#endif
 #if defined(IN_FORTRAN_CODE)
   function RSF_Get_record_meta(handle, key, metasize, datasize) result(p) bind(C,name='RSF_Get_record_meta')
     import :: RSF_handle, C_INT32_T, C_INT64_T, C_PTR

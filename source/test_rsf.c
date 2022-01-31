@@ -102,6 +102,8 @@ int the_test(int argc, char **argv){
   int32_t data[NDATA+NREC] ;
   size_t data_size ;
   int i, j, ndata ;
+  int64_t slot ;
+  int32_t meta0 ;
 
   MPI_Init(&argc, &argv) ;
   MPI_Comm_rank(MPI_COMM_WORLD, &my_rank) ;
@@ -132,6 +134,13 @@ int the_test(int argc, char **argv){
     }
     // metadata in vdir shorter by 1 than metadata in record
     RSF_Put_data(h1, meta, META_SIZE + ((META_SIZE-1) << 16), data, data_size) ; // fprintf(stderr,"PUT %p\n",h1.p);
+    if(i == 3) {
+      meta0 = meta[0] ;
+      meta[0] = RT_FILE ;
+      slot = RSF_Put_file(h1, "../stored_file.txt", meta, 2) ;
+      meta[0] = meta0 ;
+      fprintf(stderr,"DEBUG: adding file stored_file.txt, slot = %lx\n", slot) ;
+    }
   }
   MPI_Barrier(MPI_COMM_WORLD) ;
   RSF_Close_file(h1) ;
