@@ -137,7 +137,8 @@ int the_test(int argc, char **argv){
     if(i == 3) {
       meta0 = meta[0] ;
       meta[0] = RT_FILE ;
-      slot = RSF_Put_file(h1, "../stored_file.txt", meta, 2) ;
+      if(argc > 2) slot = RSF_Put_file(h1, argv[2], meta, 2) ;
+//       slot = RSF_Put_file(h1, "./stored_file.txt", meta, 2) ;
       meta[0] = meta0 ;
       fprintf(stderr,"DEBUG: adding file stored_file.txt, slot = %lx\n", slot) ;
     }

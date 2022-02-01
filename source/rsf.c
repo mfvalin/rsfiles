@@ -1100,7 +1100,7 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
   int32_t vdir_meta = (meta_size >> 16) ;          // keep the upper 16 bits for future use
   off_t file_size0, file_size2 ;
   size_t name_len = 1024 ;         // maximum allowed name length
-  ssize_t nc ;
+  ssize_t nc, nread, nwritten ;
   int i ;
   uint32_t meta0 ;
   int extra_meta ;
@@ -1109,6 +1109,7 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
   char name[] ;
   } *fmeta ;
   uint32_t *dir_meta, *file_meta ;
+  uint8_t copy_buf[1024*1024] ;
 
   dir_meta = NULL ; file_meta = NULL ; fmeta = NULL ;
 
@@ -1160,7 +1161,20 @@ fprintf(stderr,"RSF_Put_file DEBUG : name = '%s', size = %ld(%ld), vdir_meta = %
   nc = write(fp->fd, file_meta, (meta_size + extra_meta) * sizeof(uint32_t)) ;
 
 //   nc = RSF_Copy_file(fp->fd, fd, file_size) ;
-  lseek(fp->fd, file_size2, SEEK_CUR) ;   // will be replaced by RSF_Copy_file
+//   lseek(fp->fd, file_size2, SEEK_CUR) ;   // will be replaced by RSF_Copy_file
+  nread = nwritten = 0 ;
+  lseek(fd, 0l, SEEK_SET) ;                  // rewind file before copying it
+  nc = read(fd, copy_buf, sizeof(copy_buf) );
+  while(nc > 0){
+    nread += nc ;
+    if(nread > file_size2) break ;           // file being copied is changing size
+    nwritten += write(fp->fd, copy_buf, nc) ;
+    nc = read(fd, copy_buf, sizeof(copy_buf) );
+  }
+  if(nwritten < file_size2){
+    write(fp->fd, copy_buf, file_size2 - nwritten) ;  // pad
+fprintf(stderr,"RSF_Put_file DEBUG : read %ld bytes, wrote %ld bytes, padded with %ld bytes\n", nread, nwritten, file_size2 - nwritten) ;
+  }
 
   eor.rt = RT_FILE ;
   RSF_64_to_32(eor.rl, record_size) ;
@@ -1893,8 +1907,8 @@ void RSF_Dump(char *name, int verbose){
         nc = read(fd, data, read_len) ;               // read metadata part
         temp0 = (char *) data ;                       // start of metadata
         temp = temp0 + read_len -1 ;                  // end of metadata
-        while(*temp && (temp > temp0)) temp-- ;       // skip trailing nulls
-        while(temp[-1] && (temp > temp0)) temp-- ;    // back until null is found
+        while((temp[ 0] == 0) && (temp > temp0)) temp-- ;    // skip trailing nulls
+        while((temp[-1] != 0) && (temp > temp0)) temp-- ;    // back until null is found
         temp0 = temp -1 ;
         tempm = (uint32_t *) temp ;
         nmeta = tempm - data ;
@@ -1979,8 +1993,8 @@ void RSF_Dump(char *name, int verbose){
           }else{
             temp0 = (char *) meta ;
             temp = temp0 + (ventry->ml * sizeof(uint32_t)) -1 ;
-            while(*temp && (temp > temp0)) temp-- ;       // skip trailing nulls
-            while(temp[-1] && (temp > temp0)) temp-- ;    // back until null is found
+            while((temp[ 0] == 0) && (temp > temp0)) temp-- ;    // skip trailing nulls
+            while((temp[-1] != 0) && (temp > temp0)) temp-- ;    // back until null is found
             temp0 = temp -1 ;
             tempm = (uint32_t *) temp ;
             nmeta = tempm - meta ;
