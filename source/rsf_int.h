@@ -286,6 +286,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   dir_page **pagetable ;         // directory page table (pointers to directory pages for this file)
   directory_block *dirblocks ;   // first "block" of directory data
   vdir_entry **vdir ;            // pointer to table of vdir_entry pointers
+  uint64_t vdir_size ;           // total size of vdir entries
   uint64_t seg_base ;            // base address in file of the current active segment (0 if only one segment)
   uint64_t file_wa0 ;            // file address origin (normally 0) (used for file within file access)
   start_of_segment sos0 ;        // start of segment of first segment (as it was read from file)
@@ -325,6 +326,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
 //   fp->pagetable  = NULL ;
 //   fp->dirblocks  = NULL ;
 //   fp->vdir  = NULL ;
+//   fp->vdir_size  = 0 ;
 //   fp->seg_base   =  0 ;
 //   fp->file_wa0   =  0 ;
 //   initialize sos0 here ( the explicit_bzero should do the job of initializing to invalid values)

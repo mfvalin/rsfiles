@@ -162,6 +162,7 @@ static void RSF_Vdir_init(RSF_File *fp){
   int i ;
   if(fp->dirblocks == NULL) {
     RSF_Add_vdir_block(fp) ;                                // first time around
+    fp->vdir_size = sizeof(disk_vdir) + sizeof(end_of_record) ;     // fixed part + end_of_record
 fprintf(stderr,"RSF_Vdir_init DEBUG: fp->dir = %p\n", fp->dirblocks) ;
   }
   if(fp->vdir_used >= fp->vdir_slots) {                                     // need more slots, reallocate into larger memory area
@@ -205,6 +206,7 @@ static int64_t RSF_Add_vdir_entry(RSF_File *fp, uint32_t *meta, uint32_t ml, uin
   fp->vdir[fp->vdir_used] = entry ;
 //   where = &(fp->vdir[fp->vdir_used]) ;
   fp->vdir_used++ ;
+  fp->vdir_size += needed ;    // add to directory size
   index = fp->vdir_used ;
   index |= slot ;
 // fprintf(stderr,"RSF_Add_vdir_entry DEBUG: ts = %p, entry = %p,  wa = %lx, rl = %ld, ml = %d, index = %16.16lx\n", where, entry, wa, rl, ml, index) ;
@@ -692,6 +694,16 @@ fprintf(stderr,"RSF_Write_directory DEBUG : directory written at = %lx\n", fp->n
 }
 
 // =======================   VARIABLE metadata length  =======================
+static size_t RSF_Vdir_record_size(RSF_File *fp){
+  int i ;
+  size_t dir_rec_size ;
+  dir_rec_size = sizeof(disk_vdir) + sizeof(end_of_record) ;                      // fixed part + end_of_record
+  for(i = fp->dir_read ; i < fp->vdir_used ; i++){                                // add entries (wa/rl/ml/metadata)
+    dir_rec_size += ( sizeof(vdir_entry) + fp->vdir[i]->ml * sizeof(uint32_t) );  // fixed part + metadata
+  }
+fprintf(stderr, "RSF_Vdir_record_size DEBUG : dir rec size = %ld %ld\n", dir_rec_size, fp->vdir_size);
+  return dir_rec_size ;
+}
 // write file directory to storage device from memory directory (variable length metadata)
 // it is NOT assumed that the file is correctly positioned
 static int64_t RSF_Write_vdir(RSF_File *fp){
@@ -711,12 +723,13 @@ static int64_t RSF_Write_vdir(RSF_File *fp){
   if( ! (slot = RSF_Valid_file(fp)) ) return 0 ;             // something wrong with fp
 fprintf(stderr,"RSF_Write_vdir DEBUG : fp->vdir = %p\n", fp->vdir) ;
   if(fp->vdir == NULL) return 0 ;
-  dir_rec_size = sizeof(disk_vdir) + sizeof(end_of_record) ;                      // fixed part + end_of_record
-  for(i = fp->dir_read ; i < fp->vdir_used ; i++){                                 // add entries (wa/rl/ml/metadata)
-    where = fp->vdir[i] ;
-fprintf(stderr,"RSF_Write_vdir DEBUG : record %d, where = %p, ml = %d\n", i, where, fp->vdir[i]->ml) ;
-    dir_rec_size += ( sizeof(vdir_entry) + fp->vdir[i]->ml * sizeof(uint32_t) );  // fixed part + metadata
-  }
+  dir_rec_size = RSF_Vdir_record_size(fp) ;
+//   dir_rec_size = sizeof(disk_vdir) + sizeof(end_of_record) ;                      // fixed part + end_of_record
+//   for(i = fp->dir_read ; i < fp->vdir_used ; i++){                                 // add entries (wa/rl/ml/metadata)
+//     where = fp->vdir[i] ;
+// // fprintf(stderr,"RSF_Write_vdir DEBUG : record %d, where = %p, ml = %d\n", i, where, fp->vdir[i]->ml) ;
+//     dir_rec_size += ( sizeof(vdir_entry) + fp->vdir[i]->ml * sizeof(uint32_t) );  // fixed part + metadata
+//   }
 fprintf(stderr,"RSF_Write_vdir DEBUG : slot = %d\n", slot)  ;
   if( ( p = malloc(dir_rec_size) ) == NULL ) return 0 ;      // allocation failed
 fprintf(stderr,"RSF_Write_vdir DEBUG : p = %p\n", p) ;
@@ -1019,6 +1032,7 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
   // write record if enough room left in segment (always O.K. if compact segment)
   if(fp->seg_max > 0){                                                 // write into a sparse segment
     directory_record_size = RSF_Disk_dir_size(fp) +                    // space for currrent records
+                            fp->vdir_size +                            // space for vdir
                             RSF_Disk_dir_entry_size(fp) ;              // size of entry for this record
     needed = fp->next_write + record_size +                       // record
              directory_record_size + sizeof(end_of_segment) +     // directory + end of compact segment
@@ -1109,6 +1123,7 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
   char name[] ;
   } *fmeta ;
   uint32_t *dir_meta, *file_meta ;
+  uint64_t needed ;
   uint8_t copy_buf[1024*1024] ;
 
   dir_meta = NULL ; file_meta = NULL ; fmeta = NULL ;
@@ -1117,6 +1132,7 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
   slot <<= 32 ;
   if( (fp->mode & RSF_RW) != RSF_RW ) goto ERROR ; // file not open in write mode
   if( fp->next_write <= 0) goto ERROR ;            // next_write address is not set
+
   meta_size &= 0xFFFF ;                            // only keep the lower 16 bits
   fd = open(filename, O_RDONLY) ;
 fprintf(stderr,"RSF_Put_file DEBUG : file = '%s', fd = %d\n", filename, fd) ;
@@ -1126,7 +1142,7 @@ fprintf(stderr,"RSF_Put_file DEBUG : file = '%s', fd = %d\n", filename, fd) ;
   name_len = strnlen(filename, name_len) ;         // length of file name
 
   extra_meta = 2 +                                 // file size (2 x 32 bit integers)
-               ((name_len + 4) >> 2) ;             // name length + 1 rounded up to a multiple of 4 characters
+               ((name_len + 5) >> 2) ;             // name length + 2 rounded up to a multiple of 4 characters
   fmeta = (struct mmeta *) calloc(extra_meta, sizeof(uint32_t)) ;  // extra metadata
   RSF_64_to_32(fmeta->rl, file_size0) ;                     // record size
   fmeta->name[0] = '\0' ;
@@ -1147,6 +1163,22 @@ fprintf(stderr,"RSF_Put_file DEBUG : file = '%s', fd = %d\n", filename, fd) ;
                 extra_meta * sizeof(uint32_t) +  // extra metadata (unrounded file size and file name)
                 file_size2 +                     // file size rounded up to a multiple of 4
                 sizeof(end_of_record) ;
+
+  if(fp->seg_max > 0){                             // write into a sparse segment not allowed for now
+    needed = fp->next_write + 
+             record_size +                         // this record
+             fp->vdir_size +                       // current vdir directory size
+             RSF_Disk_dir_size(fp) +               // fixed metadata directory size
+//              RSF_Vdir_record_size(fp) +            // current vdir directory
+             sizeof(vdir_entry) + (meta_size + extra_meta) * sizeof(uint32_t) +  // space for this entry
+             sizeof(end_of_segment) +              // end of fixed segment
+             sizeof(start_of_segment) + sizeof(end_of_segment) ;  // new sparse segment
+    if(needed > fp->seg_max + fp->seg_base) {
+      fprintf(stderr,"RSF_Put_file ERROR : sparse segment OVERFLOW\n") ;
+      goto ERROR ;
+    }
+  }
+
   sor.rt = RT_FILE ;
   sor.rlm = meta_size + extra_meta ;
   RSF_64_to_32(sor.rl, record_size) ;
@@ -1906,7 +1938,7 @@ void RSF_Dump(char *name, int verbose){
         data = (uint32_t *) malloc(read_len) ;
         nc = read(fd, data, read_len) ;               // read metadata part
         temp0 = (char *) data ;                       // start of metadata
-        temp = temp0 + read_len -1 ;                  // end of metadata
+        temp = temp0 + nc -1 ;                  // end of metadata
         while((temp[ 0] == 0) && (temp > temp0)) temp-- ;    // skip trailing nulls
         while((temp[-1] != 0) && (temp > temp0)) temp-- ;    // back until null is found
         temp0 = temp -1 ;
