@@ -222,6 +222,7 @@ interface
 #if defined(IN_FORTRAN_CODE)
 #else
   int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta_size) ;
+  int64_t RSF_Get_file(RSF_handle h, int64_t key, char *alias, uint32_t **meta, uint32_t *meta_size) ;
 #endif
 #if defined(IN_FORTRAN_CODE)
   function RSF_Get_record_meta(handle, key, metasize, datasize) result(p) bind(C,name='RSF_Get_record_meta')

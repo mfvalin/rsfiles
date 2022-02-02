@@ -1103,6 +1103,86 @@ ERROR :
   return 0 ;
 }
 
+// retrieve file contained in RSF file ans restore it under the name alias
+// also get associated metadata pointer and metadata length
+// index : returned by RSF_Lookup when finding a record
+// if alias is NULL, the file's own name will be used
+// in case of success, index is returned,
+// in case of error, -1 is returned, meta and meta_size are set to NULL and 0 respectively
+int64_t RSF_Get_file(RSF_handle h, int64_t key, char *alias, uint32_t **meta, uint32_t *meta_size){
+  RSF_File *fp = (RSF_File *) h.p ;
+  start_of_record sor ;
+  end_of_record   eor ;
+  uint8_t copy_buf[1024*16] ;
+  uint64_t wa, rl ;
+  uint32_t *vmeta, *tempm ;
+  int64_t slot ;
+  int32_t ml ;
+  char *temp0, *temp, *filename ;
+  uint64_t file_size ;
+  uint32_t nmeta ;
+  int i ;
+  int fd ;
+  off_t offset ;
+  ssize_t nread, nwritten, nc, toread, towrite ;
+
+  *meta = NULL ;
+  *meta_size = 0 ;
+  if( ! (slot = RSF_Valid_file(fp)) ) goto ERROR ; // something wrong with fp
+
+  ml = RSF_Get_vdir_entry(fp, key, &wa, &rl, &vmeta) ;
+  if(ml == -1) goto ERROR ;                        // key not found
+
+  temp0 = (char *) vmeta ;                               // start of metadata
+  temp  = temp0 + ml * sizeof(uint32_t) ;                // end of metadata
+  while((temp[ 0] == '\0') && (temp > temp0)) temp -- ;
+  while((temp[-1] != '\0') && (temp > temp0)) temp -- ;
+  temp0 = temp -1 ;
+  tempm = (uint32_t *) temp0 ;
+  nmeta = tempm - vmeta ;
+  file_size = RSF_32_to_64(vmeta + nmeta - 2) ;
+  filename = (alias != NULL) ? alias : temp ;
+//   fprintf(stderr,"RSF_Get_file DEBUG : filename = '%s' [%ld] retrieved as '%s'\n", temp, file_size, filename) ;
+
+  fp->last_op = OP_READ ;
+
+  offset = wa ;
+  lseek(fp->fd, offset, SEEK_SET) ;                               // position at start of record
+  read(fp->fd, &sor, sizeof(start_of_record)) ;                   // read start of record
+//   fprintf(stderr,"RSF_Get_file DEBUG : rlm = %d\n", sor.rlm);
+  lseek(fp->fd, sor.rlm * sizeof(uint32_t), SEEK_CUR) ;           // skip metadata
+  nread = 0 ; nwritten = 0 ;
+  fd = open(filename, O_WRONLY | O_CREAT | O_EXCL, 0777) ;
+  if(fd == -1) {
+    fprintf(stderr,"RSF_Get_file ERROR : failed to create file '%s'\n", filename) ;
+    goto ERROR ;
+  }else{
+//     fprintf(stderr,"RSF_Get_file DEBUG : successfully created file '%s'\n", filename) ;
+  }
+  towrite = file_size ;
+  while(towrite > 0) {
+    toread = (towrite < sizeof(copy_buf)) ? towrite : sizeof(copy_buf) ;
+    towrite -= toread ;
+    nread += read(fp->fd, copy_buf, toread) ;
+    nwritten += write(fd, copy_buf, toread) ;
+//     fprintf(stderr,".") ;
+  }
+//   fprintf(stderr,"\n");
+//   fprintf(stderr,"RSF_Get_file DEBUG : read %ld, written %ld \n", nread, nwritten) ;
+  close(fd) ;
+  if(nread != nwritten) goto ERROR ;
+  fprintf(stderr,"RSF_Get_file INFO : successfully copied image of '%s' into '%s'\n", temp, filename) ;
+
+  *meta = vmeta ;       // address of directory metadata
+  *meta_size = ml ;     // directory metadata length
+  return key ;
+ERROR :
+  return -1 ;
+}
+
+// store an external file into a RSF file
+// the external file will be opened as Read-Only
+// meta and meta_size have the same use as for RSF_Put_file
 int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta_size){
   RSF_File *fp = (RSF_File *) h.p ;
   start_of_record sor = SOR ;      // start of data record
@@ -1942,7 +2022,7 @@ void RSF_Dump(char *name, int verbose){
         while((temp[ 0] == 0) && (temp > temp0)) temp-- ;    // skip trailing nulls
         while((temp[-1] != 0) && (temp > temp0)) temp-- ;    // back until null is found
         temp0 = temp -1 ;
-        tempm = (uint32_t *) temp ;
+        tempm = (uint32_t *) temp0 ;
         nmeta = tempm - data ;
         temps = RSF_32_to_64((data+nmeta-2)) ;
         lseek(fd, datalen - nc, SEEK_CUR) ;           // skip rest of record
@@ -2028,7 +2108,7 @@ void RSF_Dump(char *name, int verbose){
             while((temp[ 0] == 0) && (temp > temp0)) temp-- ;    // skip trailing nulls
             while((temp[-1] != 0) && (temp > temp0)) temp-- ;    // back until null is found
             temp0 = temp -1 ;
-            tempm = (uint32_t *) temp ;
+            tempm = (uint32_t *) temp0 ;
             nmeta = tempm - meta ;
             temps = RSF_32_to_64((meta+nmeta-2)) ;
 //             fprintf(stderr," %p %p",tempm, meta) ;

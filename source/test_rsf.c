@@ -102,8 +102,9 @@ int the_test(int argc, char **argv){
   int32_t data[NDATA+NREC] ;
   size_t data_size ;
   int i, j, ndata ;
-  int64_t slot ;
+  int64_t slot, slot2 ;
   int32_t meta0 ;
+  uint32_t *metaf, fmeta_size ;
 
   MPI_Init(&argc, &argv) ;
   MPI_Comm_rank(MPI_COMM_WORLD, &my_rank) ;
@@ -137,15 +138,24 @@ int the_test(int argc, char **argv){
     if(i == 3) {
       meta0 = meta[0] ;
       meta[0] = RT_FILE ;
-      if(argc > 2) slot = RSF_Put_file(h1, argv[2], meta, 2) ;
+      if(argc > 2) {
+        fprintf(stderr,"DEBUG: adding file '%s', slot = %lx\n", argv[2], slot) ;
+        slot = RSF_Put_file(h1, argv[2], meta, 2) ;
+      }
       meta[0] = meta0 ;
-      fprintf(stderr,"DEBUG: adding file stored_file.txt, slot = %lx\n", slot) ;
+    }
+    if(i == 5) {
+      if(argc > 2) {
+        fprintf(stderr,"DEBUG: retrieving file '%s', slot = %lx\n", argv[2], slot) ;
+        slot2 = RSF_Get_file(h1, slot, "tagada.txt", &metaf, &fmeta_size) ;
+        fprintf(stderr,"DEBUG: slot read/written = %lx/%lx,  %s\n",slot, slot2, (slot == slot2) ? "SUCCESS" : "ERROR") ;
+      }
     }
   }
   MPI_Barrier(MPI_COMM_WORLD) ;
   RSF_Close_file(h1) ;
   MPI_Barrier(MPI_COMM_WORLD) ;
-// goto END ;
+goto END ;
   if(my_rank == nprocs -1){
     fprintf(stderr,"====== Fusing segments ======\n") ;
     h1 = RSF_Open_file(argv[1], RSF_RW + RSF_FUSE, &meta_dim, "DeMo", NULL);
