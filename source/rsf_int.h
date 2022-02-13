@@ -60,18 +60,22 @@ static inline void RSF_64_to_32(uint32_t u32[2], uint64_t u64){
 }
 
 //    structure of a record (array of 32 bit items)
-//      ZR    RLM    RT   RL[0]   RL[1]                                       RL[0]   RL[1]   ZR    RLM    RT
-//    +----+-------+----+-------+-------+----------+------------------------+-------+-------+----+-------+----+
-//    |    |       |    |       |       | METADATA |       DATA             |       |       |    |       |    |
-//    +----+-------+----+-------+-------+----------+------------------------+-------+-------+----+-------+----+
-//      8     16     8     32      32     RLM x 32                             32      32      8    16     8   (# of bits)
-//    <------------------------------------  RL[0] * 2**32 + RL[1] bytes  ------------------------------------>
+//      ZR    RLM    RT   RL[0]   RL[1]   LMETA                                       RL[0]   RL[1]   ZR    RLM    RT
+//    +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
+//    |    |       |    |       |       | LMETA | METADATA |       DATA             |       |       |    |       |    |
+//    +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
+//      8     16     8     32      32      32     RLM x 32                             32      32      8    16     8   (# of bits)
+//    <--------------------------------------------  RL[0] * 2**32 + RL[1] bytes  ------------------------------------>
 //  ZR    : marker
-//  RLM   : length of metadata in 32 bit units (data and directory records)
+//  RLM   : length of metadata in 32 bit units (data record)
 //          RLM in a data record MAY be larger than directory length of metadata
 //          (secondary metadata not in directory)
 //        : open-for-write flag (Start of segment record) (0 if not open for write)
 //        : undefined (End of segment or other record)
+// LMETA  : record local metadata, RLMD, UBC, DUL [] )
+//          RLMD (16 bits) directory metadata length for this record
+//          UBC  ( 8 bits) Unused Bit Count (RL is always a multiple of 4 Bytes)
+//          DUL  ( 8 bits) Data Unit Length (1/2/4/8 bytes) for Endianness adjustment
 //  RT    : record type
 //  RL    : record length = RL[0] * 2**32 + RL[1] bytes (ALWAYS a multiple of 4 bytes)
 
@@ -81,6 +85,10 @@ typedef struct {                   // record header
 } start_of_record ;
 
 #define SOR {RT_DATA, 0, ZR_SOR, {0, 0}}
+
+typedef struct {
+  uint32_t  rlmd:16, ubc:8, dul:8 ;
+} rlmd ;
 
 // record length from start_of_record (0 if invalid)
 // rt : expected record type (0 means anything is O.K.)
@@ -312,6 +320,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   int16_t  dirpages ;            // number of available directory pages (-1 if none )
   int16_t  curpage ;             // current page in use (-1 if not defined)
   int16_t  lastpage ;            // last directory page in use (-1 if not defined)
+  int32_t  lock ;                // used to lock the file for thread safety
 } ;
 
 // NOTE : explicit_bzero not available everywhere
@@ -352,6 +361,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
   fp->dirpages   = -1 ;
   fp->curpage    = -1 ;
   fp->lastpage   = -1 ;
+//   fp->lock       =  0 ;
 }
 
 static inline size_t RSF_Disk_dir_entry_size(RSF_File *fp){      // size of a file directory entry
@@ -368,4 +378,22 @@ static inline size_t RSF_Disk_dir_size(RSF_File *fp){      // size of the record
 static inline size_t RSF_Dir_page_size(RSF_File *fp){            // size of a directory page in memory
   return ( sizeof(dir_page) +                                    // base size, including warl table
            fp->meta_dim * sizeof(uint32_t) * DIR_PAGE_SIZE ) ;   // metadata for the page
+}
+
+// timeout is in microseconds
+static inline uint32_t RSF_Lock(RSF_File *fp, uint32_t id, uint32_t timeout){
+  useconds_t usec = 100 ;                                        // 100 microseconds
+  if(fp->lock == id) return 1 ;                                  // we already own the lock
+  while(__sync_val_compare_and_swap(&(fp->lock), 0, id) != 0){   // wait until lock is free
+    timeout = timeout - usec ;
+    if(timeout <= 0) return 0 ;                                  // timeout
+    usleep(usec) ;                                               // microsleep for usec microseconds
+  }
+  return 1 ;
+}
+
+static inline uint32_t RSF_Unlock(RSF_File *fp, uint32_t id){
+  uint32_t old_id = fp->lock ;
+  if(old_id == id) fp->lock = 0 ;
+  return old_id == id ;            // 1 if successful, 0 if locked by some other code
 }
