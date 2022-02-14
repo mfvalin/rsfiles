@@ -1261,6 +1261,8 @@ fprintf(stderr,"RSF_Put_file DEBUG : file = '%s', fd = %d\n", filename, fd) ;
 
   sor.rt = RT_FILE ;
   sor.rlm = meta_size + extra_meta ;
+//   sor.rlmd = meta_size ;
+//   sor.dul = 1 ;
   RSF_64_to_32(sor.rl, record_size) ;
 fprintf(stderr,"RSF_Put_file DEBUG : name = '%s', size = %ld(%ld), vdir_meta = %d, extra_meta = %d, meta_size = %d, record_size = %ld\n", 
         filename, file_size0, file_size2, vdir_meta, extra_meta, meta_size, record_size);
@@ -1291,7 +1293,7 @@ fprintf(stderr,"RSF_Put_file DEBUG : read %ld bytes, wrote %ld bytes, padded wit
   eor.rt = RT_FILE ;
   RSF_64_to_32(eor.rl, record_size) ;
   eor.rlm = meta_size + extra_meta ;
-  nc = write(fp->fd, &eor, sizeof(start_of_record)) ;
+  nc = write(fp->fd, &eor, sizeof(end_of_record)) ;
 
   close(fd) ;
 
@@ -2014,7 +2016,12 @@ void RSF_Dump(char *name, int verbose){
         data = NULL ;
         break ;
       case RT_FILE :
+#if 1
         read_len = sor.rlm * sizeof(uint32_t) ;
+        lseek(fd, datalen, SEEK_CUR) ;           // skip rest of record
+        fprintf(stderr,"  %s RL = %ld, sizeof(sor) = %ld, rlm = %d", buffer, datalen, sizeof(sor), sor.rlm);
+        break ;
+#else
         data = (uint32_t *) malloc(read_len) ;
         nc = read(fd, data, read_len) ;               // read metadata part
         temp0 = (char *) data ;                       // start of metadata
@@ -2037,6 +2044,7 @@ void RSF_Dump(char *name, int verbose){
         if(data) free(data) ;
         data = NULL ;
         break ;
+#endif
       case RT_SOS :
         lseek(fd, -sizeof(sor), SEEK_CUR) ; 
         seg_offset = rec_offset ;

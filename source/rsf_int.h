@@ -64,7 +64,7 @@ static inline void RSF_64_to_32(uint32_t u32[2], uint64_t u64){
 //    +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
 //    |    |       |    |       |       | LMETA | METADATA |       DATA             |       |       |    |       |    |
 //    +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
-//      8     16     8     32      32      32     RLM x 32                             32      32      8    16     8   (# of bits)
+//      8     16     8     32      32    16/8/8   RLM x 32                             32      32      8    16     8   (# of bits)
 //    <--------------------------------------------  RL[0] * 2**32 + RL[1] bytes  ------------------------------------>
 //  ZR    : marker
 //  RLM   : length of metadata in 32 bit units (data record)
@@ -82,9 +82,11 @@ static inline void RSF_64_to_32(uint32_t u32[2], uint64_t u64){
 typedef struct {                   // record header
   uint32_t rt:8, rlm:16, zr:8 ;    // ZR_SOR, metadata length (32 bit units), record type
   uint32_t rl[2] ;                 // upper[0], lower[1] 32 bits of record length (bytes)
+  uint32_t  rlmd:16, ubc:8, dul:8 ;
 } start_of_record ;
 
-#define SOR {RT_DATA, 0, ZR_SOR, {0, 0}}
+// #define SOR {RT_DATA, 0, ZR_SOR, {0, 0}}
+#define SOR {RT_DATA, 0, ZR_SOR, {0, 0}, 0, 0, 0}
 
 typedef struct {
   uint32_t  rlmd:16, ubc:8, dul:8 ;
