@@ -174,23 +174,32 @@ fprintf(stderr,"RSF_Vdir_init DEBUG: realloc fp->vdir = %p, slots = %d, used = %
 }
 
 // add a new VARIABLE length metadata entry to directory
-static int64_t RSF_Add_vdir_entry(RSF_File *fp, uint32_t *meta, uint32_t ml, uint64_t wa, uint64_t rl)
+// fp    pointer to RSF file control struct
+// meta  pointer to metadata array (32 bit elements)
+// mlr   lower 16 bits record metadata length
+//       upper 16 bits directory metadata length (if zero, same as record metadata length)
+// wa    byte address of record in file
+// rl    record length in bytes (should always be a multiple of 4)
+static int64_t RSF_Add_vdir_entry(RSF_File *fp, uint32_t *meta, uint32_t mlr, uint64_t wa, uint64_t rl)
 {
   directory_block *dd ;
-  int needed = sizeof(vdir_entry) + ml * sizeof(uint32_t) ;   // needed size for entry to be added
+  int needed ;   // needed size for entry to be added
   vdir_entry *entry ;
   int i ;
   int64_t index, slot ;
+  uint32_t mld = (mlr >> 16) ;
 //   void *where ;
 
   if(fp == NULL) goto ERROR ;
-  if( ! (slot = RSF_Valid_file(fp)) ) return -1 ;     // something not O.K. with fp
+  if( ! (slot = RSF_Valid_file(fp)) ) goto ERROR ;     // something not O.K. with fp
   slot <<= 32 ;
   RSF_Vdir_init(fp) ;
   dd = fp->dirblocks ;
 
+  mld = (mld > 0) ? mld : mlr ;        // length of directory metadata
+  mlr &= 0xFFFF ;                      // keep lower 16 bits
   needed = sizeof(vdir_entry) +        // base size for entry to be added
-           ml * sizeof(uint32_t) ;     // metadata size
+           mld * sizeof(uint32_t) ;    // directory metadata size
   if(dd->top - dd->cur < needed) {                    // add a block if no room for entry
 // fprintf(stderr,"RSF_Add_vdir_entry DEBUG: need %d, have %d, allocating a new block\n", needed, dd->top - dd->cur) ;
     dd = RSF_Add_vdir_block(fp) ;
@@ -200,8 +209,8 @@ static int64_t RSF_Add_vdir_entry(RSF_File *fp, uint32_t *meta, uint32_t ml, uin
   dd->cur += needed ;
   RSF_64_to_32(entry->wa, wa) ;
   RSF_64_to_32(entry->rl, rl) ;
-  entry->ml = ml ;
-  for(i = 0 ; i < ml ; i++) entry->meta[i] = meta[i] ;
+  entry->ml = (mld << 16) + mlr ;
+  for(i = 0 ; i < mld ; i++) entry->meta[i] = meta[i] ;
 
   fp->vdir[fp->vdir_used] = entry ;
 //   where = &(fp->vdir[fp->vdir_used]) ;
@@ -241,7 +250,7 @@ int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint64_t *rl
   *wa = RSF_32_to_64(ventry->wa) ;
   *rl = RSF_32_to_64(ventry->rl) ;
   *meta = &(ventry->meta[0]) ;
-  return ventry->ml ;
+  return (ventry->ml) >> 16 ;    // return directory metadata length
 
 ERROR :
   fprintf(stderr,"RSF_Get_vdir_entry ERROR : %s\n", error) ;
@@ -375,7 +384,7 @@ static int64_t RSF_Add_directory_entry(RSF_File *fp, uint32_t *meta, uint64_t wa
   dir_page *cur_page ;
   int index, i ;
   int64_t slot ;
-
+return -1 ;
   if( ! (slot = RSF_Valid_file(fp)) ) return -1 ;     // something not O.K. with fp
 
   // slot in origin 1 (zero is invalid)
@@ -527,7 +536,7 @@ static int32_t RSF_Read_directory(RSF_File *fp){
   disk_dir_entry *entry ;
   vdir_entry *ventry ;
   char *e ;
-  int i ;
+  int i, ml ;
   uint64_t dir_entry_size ;
   uint32_t *meta ;
   uint32_t meta_dim ;
@@ -548,6 +557,7 @@ static int32_t RSF_Read_directory(RSF_File *fp){
     segments++ ;
 
     errmsg = "invalid start of record" ;
+fprintf(stderr,"RSF_Read_directory DEBUG offset = %8.8lx, rt = %d, rlm = %d, zr = %d\n", off_seg, sos.head.rt, sos.head.rlm, sos.head.zr);
     if( RSF_Rl_sor(sos.head, RT_SOS) == 0) goto ERROR ;     // invalid sos record (wrong record type)
     size_seg = RSF_32_to_64(sos.sseg) ;                     // segment size
     if(size_seg == 0) break ;                               // open, compact, this is the last segment
@@ -566,12 +576,15 @@ fprintf(stderr,", vdir_off = %ld, vdir_size = %ld\n", vdir_off, vdir_size) ;
       nc = read(fp->fd, vdir, vdir_size) ;                   // read segment vdir
       e = (char *) &(vdir->entry[0]) ;
       for(i=0 ; i < vdir->entries_nused ; i++){
+        l_entries++ ;
+        entries++ ;
         ventry = (vdir_entry *) e ;
         wa = RSF_32_to_64(ventry->wa) + off_seg ;
         rl = RSF_32_to_64(ventry->rl) ;
         meta = &(ventry->meta[0]) ;
         RSF_Add_vdir_entry(fp, meta, ventry->ml, wa, rl) ;    // add entry into variable metadata directory
-        e = e + sizeof(vdir_entry) + ventry->ml * sizeof(uint32_t) ;
+        ml = (ventry->ml >> 16) ;
+        e = e + sizeof(vdir_entry) + ml * sizeof(uint32_t) ;
       }
       if(vdir) free(vdir) ;                                 // free memory used to read segment vdir from file
       vdir = NULL ;                                         // to avoid a double free
@@ -695,11 +708,12 @@ fprintf(stderr,"RSF_Write_directory DEBUG : directory written at = %lx\n", fp->n
 
 // =======================   VARIABLE metadata length  =======================
 static size_t RSF_Vdir_record_size(RSF_File *fp){
-  int i ;
+  int32_t i, ml ;
   size_t dir_rec_size ;
   dir_rec_size = sizeof(disk_vdir) + sizeof(end_of_record) ;                      // fixed part + end_of_record
   for(i = fp->dir_read ; i < fp->vdir_used ; i++){                                // add entries (wa/rl/ml/metadata)
-    dir_rec_size += ( sizeof(vdir_entry) + fp->vdir[i]->ml * sizeof(uint32_t) );  // fixed part + metadata
+    ml = fp->vdir[i]->ml >> 16 ;
+    dir_rec_size += ( sizeof(vdir_entry) + ml * sizeof(uint32_t) );  // fixed part + metadata
   }
 fprintf(stderr, "RSF_Vdir_record_size DEBUG : dir rec size = %ld %ld\n", dir_rec_size, fp->vdir_size);
   return dir_rec_size ;
@@ -719,6 +733,7 @@ static int64_t RSF_Write_vdir(RSF_File *fp){
   int i ;
   uint64_t wa64 ;
   void *where ;
+  int32_t ml ;
 
   if( ! (slot = RSF_Valid_file(fp)) ) return 0 ;             // something wrong with fp
 fprintf(stderr,"RSF_Write_vdir DEBUG : fp->vdir = %p\n", fp->vdir) ;
@@ -759,7 +774,8 @@ fprintf(stderr,"RSF_Write_vdir DEBUG : dir_read = %d, vdir_used = %d\n", fp->dir
 // return 0 ;
   for(i = fp->dir_read ; i < fp->vdir_used ; i++){             // fill from in core directory
     entry = (vdir_entry *) e ;
-    dir_entry_size = sizeof(vdir_entry) + fp->vdir[i]->ml * sizeof(uint32_t) ;
+    ml = (fp->vdir[i]->ml) >> 16 ;
+    dir_entry_size = sizeof(vdir_entry) + ml * sizeof(uint32_t) ;
     memcpy(entry, fp->vdir[i], dir_entry_size) ;   // copy entry from memory directory
     wa64 = RSF_32_to_64(entry->wa) ;               // adjust wa64 (file address -> offset in segment)
     wa64 -= fp->seg_base ;
@@ -1022,6 +1038,9 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
   meta_size &= 0xFFFF ;                            // only keep the lower 16 bits
   if(meta_size == 0) meta_size = fp->meta_dim ;    // get default metadata length from file structure
   if(meta_size < fp->meta_dim) goto ERROR ;        // metadata too small, must be at least fp->meta_dim
+  // what is stored in vdir may be shorter than meta_size
+  if(vdir_meta == 0) vdir_meta = meta_size & 0xFFFF ;
+  if(vdir_meta > (meta_size & 0xFFFF)) vdir_meta = meta_size & 0xFFFF ;
 
   record_size = sizeof(start_of_record) +          // start of record
                 meta_size * sizeof(uint32_t) +     // metadata
@@ -1051,6 +1070,9 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
     total_size = RSF_Adjust_data_record(h, record, data_size) ;     // adjust to actual data size
     // make meta_size consistent with record->metasize
     meta_size = record->meta_size ;                                 // vdir_meta will come from the upper 16 bits of the meta_size argument
+    vdir_meta = (meta_size >> 16) ;
+    if(vdir_meta == 0) vdir_meta = meta_size ;
+    if(vdir_meta > (meta_size & 0xFFFF)) vdir_meta = meta_size & 0xFFFF ;
     meta = record->meta ;                                           // set meta to address of metadata from record
     meta0 = meta[0] ;                                               // save meta[0]
     rt0 = meta0 & 0xFF ;                                            // lower 8 bits
@@ -1072,8 +1094,11 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
       if(rt0 < 8 || rt0 >= RT_DEL) rt0 = RT_DATA ;                  // RT_DATA (normal data record) by default
     if(class0 == 0) class0 = (fp->rec_class & 0xFFFFFF) ;           // fp->rec_class if unspecified
     meta[0] = (class0 << 8) | ( rt0 & 0xFF) ;                       // RT + record class
-    sor.rlm = meta_size ;
+    sor.rlm = meta_size & 0xFFFF ;
     sor.rt = rt0 ;                                                  // alter record type in start_of_record
+    sor.rlmd = vdir_meta ;
+    sor.dul = 4 ;
+    sor.ubc = 0 ;
     RSF_64_to_32(sor.rl, record_size) ;
     nc = write(fp->fd, &sor, sizeof(start_of_record)) ;             // write start of record
     nc = write(fp->fd, meta, meta_size * sizeof(uint32_t)) ;        // write metadata
@@ -1086,10 +1111,7 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
 
   // update directory in memory
   slot = RSF_Add_directory_entry(fp, meta, fp->next_write, record_size) ;
-  // what is stored in vdir may be shorter than meta_size
-  if(vdir_meta == 0) vdir_meta = meta_size & 0xFFFF ;
-  if(vdir_meta > (meta_size & 0xFFFF)) vdir_meta = meta_size & 0xFFFF ;
-  slot = RSF_Add_vdir_entry(fp, meta, vdir_meta, fp->next_write, record_size) ;
+  slot = RSF_Add_vdir_entry(fp, meta, (vdir_meta << 16) + meta_size, fp->next_write, record_size) ;
 //   RSF_Add_vdir_entry(fp, meta, meta_size, fp->next_write, record_size) ;
   meta[0] = meta0 ;                                                 // restore meta[0] to original value
 
@@ -1193,6 +1215,7 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
   uint64_t record_size ;           // sor + metadata + file + eor
   int32_t vdir_meta = (meta_size >> 16) ;          // keep the upper 16 bits for future use
   off_t file_size0, file_size2 ;
+  int32_t unused ;
   size_t name_len = 1024 ;         // maximum allowed name length
   ssize_t nc, nread, nwritten ;
   int i ;
@@ -1215,14 +1238,16 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
 
   meta_size &= 0xFFFF ;                            // only keep the lower 16 bits
   fd = open(filename, O_RDONLY) ;
-fprintf(stderr,"RSF_Put_file DEBUG : file = '%s', fd = %d\n", filename, fd) ;
+// fprintf(stderr,"RSF_Put_file DEBUG : file = '%s', fd = %d\n", filename, fd) ;
   if(fd < 0) goto ERROR ;
   file_size0 = lseek(fd, file_size2, SEEK_END) ;   // get file size
   file_size2 = ((file_size0 + 3) & (~0x3)) ;       // file size rounded up to a multiple of 4
+  unused = file_size2 - file_size0 ;               // number of unused bytes
   name_len = strnlen(filename, name_len) ;         // length of file name
 
   extra_meta = 2 +                                 // file size (2 x 32 bit integers)
                ((name_len + 5) >> 2) ;             // name length + 2 rounded up to a multiple of 4 characters
+fprintf(stderr,"RSF_Put_file DEBUG: name_len = %ld, extra_meta = %d, meta_size = %d\n", name_len, extra_meta, meta_size) ;
   fmeta = (struct mmeta *) calloc(extra_meta, sizeof(uint32_t)) ;  // extra metadata
   RSF_64_to_32(fmeta->rl, file_size0) ;                     // record size
   fmeta->name[0] = '\0' ;
@@ -1249,7 +1274,6 @@ fprintf(stderr,"RSF_Put_file DEBUG : file = '%s', fd = %d\n", filename, fd) ;
              record_size +                         // this record
              fp->vdir_size +                       // current vdir directory size
              RSF_Disk_dir_size(fp) +               // fixed metadata directory size
-//              RSF_Vdir_record_size(fp) +            // current vdir directory
              sizeof(vdir_entry) + (meta_size + extra_meta) * sizeof(uint32_t) +  // space for this entry
              sizeof(end_of_segment) +              // end of fixed segment
              sizeof(start_of_segment) + sizeof(end_of_segment) ;  // new sparse segment
@@ -1261,8 +1285,9 @@ fprintf(stderr,"RSF_Put_file DEBUG : file = '%s', fd = %d\n", filename, fd) ;
 
   sor.rt = RT_FILE ;
   sor.rlm = meta_size + extra_meta ;
-//   sor.rlmd = meta_size ;
-//   sor.dul = 1 ;
+  sor.rlmd = sor.rlm ;                        // size of directory metadata
+  sor.ubc = unused << 3 ;                     // unused bits in data part of record
+  sor.dul = 1 ;                               // record contents is bytes (endianness management)
   RSF_64_to_32(sor.rl, record_size) ;
 fprintf(stderr,"RSF_Put_file DEBUG : name = '%s', size = %ld(%ld), vdir_meta = %d, extra_meta = %d, meta_size = %d, record_size = %ld\n", 
         filename, file_size0, file_size2, vdir_meta, extra_meta, meta_size, record_size);
@@ -1806,7 +1831,10 @@ offset_eof = offset_dir + vdir_size + sizeof(end_of_segment) ;   // offset_eof p
 // fprintf(stderr,"offset_dir = %16lo, offset_eof = %16lo\n",offset_dir, offset_eof);
   fp->cur_pos = lseek(fp->fd, fp->next_write , SEEK_SET) ;  // reset position of write pointer
 // fprintf(stderr,"before write directory %ld\n", lseek(fp->fd, 0L , SEEK_CUR));
-  dir_size = RSF_Write_directory(fp) ;             // write directory to file
+// // //   dir_size = RSF_Write_directory(fp) ;             // write directory to file
+  offset_dir = 0 ;
+  dir_size = 0 ;
+  offset_eof = fp->next_write - fp->seg_base  + sizeof(end_of_segment);
 // fprintf(stderr,"after write directory %ld\n", lseek(fp->fd, 0L , SEEK_CUR));
 
 // fprintf(stderr,"RSF_Close_file DEBUG :, after write directory, pos = %lx\n", lseek(fp->fd, 0L, SEEK_CUR));
@@ -2011,21 +2039,16 @@ void RSF_Dump(char *name, int verbose){
         for(i=0 ; i<sor.rlm ; i++) {
           fprintf(stderr," %8.8x", data[i]) ; 
         }
-        fprintf(stderr,"], rlm = %d",sor.rlm) ;
+        fprintf(stderr,"], rlmd = %d, rlm = %d", sor.rlmd, sor.rlm) ;
         if(data) free(data) ;
         data = NULL ;
         break ;
       case RT_FILE :
-#if 1
         read_len = sor.rlm * sizeof(uint32_t) ;
-        lseek(fd, datalen, SEEK_CUR) ;           // skip rest of record
-        fprintf(stderr,"  %s RL = %ld, sizeof(sor) = %ld, rlm = %d", buffer, datalen, sizeof(sor), sor.rlm);
-        break ;
-#else
         data = (uint32_t *) malloc(read_len) ;
         nc = read(fd, data, read_len) ;               // read metadata part
         temp0 = (char *) data ;                       // start of metadata
-        temp = temp0 + nc -1 ;                  // end of metadata
+        temp = temp0 + nc -1 ;                        // end of metadata
         while((temp[ 0] == 0) && (temp > temp0)) temp-- ;    // skip trailing nulls
         while((temp[-1] != 0) && (temp > temp0)) temp-- ;    // back until null is found
         temp0 = temp -1 ;
@@ -2044,7 +2067,6 @@ void RSF_Dump(char *name, int verbose){
         if(data) free(data) ;
         data = NULL ;
         break ;
-#endif
       case RT_SOS :
         lseek(fd, -sizeof(sor), SEEK_CUR) ; 
         seg_offset = rec_offset ;
@@ -2097,22 +2119,25 @@ void RSF_Dump(char *name, int verbose){
     if(tlen != reclen) goto END ; ;
     if(sor.rt == RT_VDIR  && vd != NULL  && vd->entries_nused > 0){
       if( (verbose > 0 && tabplus == 0) || (verbose > 10) ){
-        fprintf(stderr," Directory  WA(SEG)       WA(FILE)         RL      RT CLASS  META \n") ;
+        fprintf(stderr," Directory  WA(SEG)       WA(FILE)      RLM  RLMD       RL     RT CLASS  META \n") ;
         e = (char *) &(d->entry[0]) ;
         l_offset = (tabplus == 0) ? dir_seg_offset : seg_offset ;
         for(i=0 ; i < d->entries_nused ; i++){
+          int32_t ml, mlr ;
           ventry = (vdir_entry *) e ;
+          ml = (ventry->ml >> 16) ;
+          mlr = ventry->ml & 0xFFFF ;
           wa = RSF_32_to_64(ventry->wa) ;
           rl = RSF_32_to_64(ventry->rl) ;
           meta = &(ventry->meta[0]) ;
-          fprintf(stderr," [%6d] %12.12lx [%12.12lx] %12.12lx", i, wa, wa+l_offset, rl) ;
+          fprintf(stderr," [%6d] %12.12lx [%12.12lx] %5d %5d %12.12lx", i, wa, wa+l_offset, mlr, ml, rl) ;
           fprintf(stderr," %2.2x %6.6x", meta[0] & 0xFF, meta[0] >> 8) ;
           if( (meta[0] & 0xFF) != RT_FILE){
-            for(j=1 ; j<ventry->ml ; j++) fprintf(stderr," %8.8x", meta[j]) ;
+            for(j=1 ; j<ml ; j++) fprintf(stderr," %8.8x", meta[j]) ;
             fprintf(stderr,"\n") ;
           }else{
             temp0 = (char *) meta ;
-            temp = temp0 + (ventry->ml * sizeof(uint32_t)) -1 ;
+            temp = temp0 + (ml * sizeof(uint32_t)) -1 ;
             while((temp[ 0] == 0) && (temp > temp0)) temp-- ;    // skip trailing nulls
             while((temp[-1] != 0) && (temp > temp0)) temp-- ;    // back until null is found
             temp0 = temp -1 ;
@@ -2123,7 +2148,7 @@ void RSF_Dump(char *name, int verbose){
             for(j=1 ; j<nmeta-2 ; j++) fprintf(stderr," %8.8x", meta[j]) ;
             fprintf(stderr," '%s' [%ld]\n", temp, temps) ;
           }
-          e = e + sizeof(vdir_entry) + ventry->ml * sizeof(uint32_t) ;
+          e = e + sizeof(vdir_entry) + ml * sizeof(uint32_t) ;
         }
         fprintf(stderr,"-------------------------------------------------\n") ;
       }

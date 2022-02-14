@@ -33,11 +33,11 @@
 // 128 : deleted record
 //
 // rt:rlm:zr can be used for endianness detection, least significant byte (zr) ZR_xx, most significant byte (rt) RT_xx
-// rt and zr can never have the same value (RT = 0->128 , ZR = 240->255)
-// the zr field is 0 for start_of_record and 0xFF for end_of_record
+// rt and zr can never have the same value (RT = 0->128 , ZR = 254->255)
+// the zr field is 0xFE for start_of_record and 0xFF for end_of_record
 // max record length is 2**48 - 1 bytes (rl in bytes) (256 TBytes)
 
-#define ZR_SOR  0XF0
+#define ZR_SOR  0XFE
 #define ZR_EOR  0xFF
 
 #define RL_SOR sizeof(start_of_record)
@@ -96,8 +96,14 @@ typedef struct {
 // rt : expected record type (0 means anything is O.K.)
 static inline uint64_t RSF_Rl_sor(start_of_record sor, int rt){
   uint64_t rl ;
-  if(sor.zr != ZR_SOR ) return 0 ;               // invalid sor, bad ZR marker
-  if(sor.rt != rt && rt != 0 ) return 0 ;        // invalid sor, not expected RT
+  if(sor.zr != ZR_SOR ) {
+    fprintf(stderr,"invalid sor, bad ZR marker, expected %4.4x, got %4.4x\n", ZR_SOR, sor.zr);
+    return 0 ;               // invalid sor, bad ZR marker
+  }
+  if(sor.rt != rt && rt != 0 ) {
+    fprintf(stderr,"invalid sor, bad RT, expected %d, got %d\n", rt, sor.rt) ;
+    return 0 ;        // invalid sor, not expected RT
+  }
   rl = RSF_32_to_64(sor.rl) ;                    // record length
   return rl ;
 }
@@ -216,7 +222,7 @@ struct directory_block{
 typedef struct{
   uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment (or file)
   uint32_t rl[2] ;        // upper[0], lower[1] 32 bits of record length (bytes)
-  uint32_t ml ;           // metadata length
+  uint32_t ml ;           // upper 16 bits file metadata length, lower 16 directory metadata length
   uint32_t meta[] ;       // metadata
 } vdir_entry ;
 
