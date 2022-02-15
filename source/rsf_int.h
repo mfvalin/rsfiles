@@ -85,12 +85,7 @@ typedef struct {                   // record header
   uint32_t  rlmd:16, ubc:8, dul:8 ;
 } start_of_record ;
 
-// #define SOR {RT_DATA, 0, ZR_SOR, {0, 0}}
 #define SOR {RT_DATA, 0, ZR_SOR, {0, 0}, 0, 0, 0}
-
-typedef struct {
-  uint32_t  rlmd:16, ubc:8, dul:8 ;
-} rlmd ;
 
 // record length from start_of_record (0 if invalid)
 // rt : expected record type (0 means anything is O.K.)
@@ -145,8 +140,6 @@ typedef struct{           // start of segment record, matched by a corresponding
   uint32_t meta_dim ;     // directory entry metadata size (uint32_t units)
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes) (excluding EOS record)
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of segment size (bytes) (including EOS record)
-//   uint32_t Dir[2] ;       // upper[0], lower[1] 32 bits of directory record offset in segment (bytes)
-//   uint32_t Dirs[2] ;      // upper[0], lower[1] 32 bits of directory record size (bytes)
   uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
   uint32_t vdirs[2] ;     // upper[0], lower[1] 32 bits of variable directory record size (bytes)
   end_of_record tail ;    // rt=3
@@ -164,8 +157,6 @@ static inline uint64_t RSF_Rl_sos(start_of_segment sos){
               {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
               {{0, sizeof(start_of_segment)}, RT_SOS, 0, ZR_EOR} }
 
-// static start_of_segment sos0 = SOS ;
-
 typedef struct{           // head part of end_of_segment record (low address in file)
   start_of_record head ;  // rt=4
   uint32_t sign ;         // 0xBEBEFADA hex signature for end_of_segment_lo
@@ -178,8 +169,6 @@ typedef struct{           // tail part of end_of_segment record (high address in
   uint32_t meta_dim ;     // directory entry metadata size (uint32_t units)
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes)
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of sparse segment size (bytes) (0 if not sparse file)
-//   uint32_t Dir[2] ;       // upper[0], lower[1] 32 bits of directory record offset in segment (bytes)
-//   uint32_t Dirs[2] ;      // upper[0], lower[1] 32 bits of directory record size (bytes)
   uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
   uint32_t vdirs[2] ;     // upper[0], lower[1] 32 bits of variable directory record size (bytes)
   end_of_record tail ;    // rt=4
@@ -219,13 +208,6 @@ struct directory_block{
   uint8_t entries[] ;
 } ;
 
-typedef struct{
-  uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment (or file)
-  uint32_t rl[2] ;        // upper[0], lower[1] 32 bits of record length (bytes)
-  uint32_t ml ;           // upper 16 bits directory metadata length, lower 16 record metadata length
-  uint32_t meta[] ;       // metadata
-} vdir_entry ;
-
 // directory metadata length : upper 16 bits if non zero, lower 16 bits if upper 16 are zero
 #define DIR_ML(DRML) ( ((DRML) >> 16) == 0 ? (DRML) : ((DRML) >> 16) )
 // record metadata length : lower 16 bits
@@ -235,12 +217,12 @@ typedef struct{
 // propagate lower 16 bits into upper 16 bits if upper 16 are zero
 #define DRML_FIX(ML) ( ((ML) >> 16) == 0 ? ((ML) <<16) | (ML) : (ML) )
 
-typedef struct{           // disk directory entry (one per record)
-  uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment
+typedef struct{
+  uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment (or file)
   uint32_t rl[2] ;        // upper[0], lower[1] 32 bits of record length (bytes)
-//uint32_t rc ;           // record class (found in meta[0]
-  uint32_t meta[] ;       // dynamic array for entry metadata (meta_dim elements)
-} disk_dir_entry ;
+  uint32_t ml ;           // upper 16 bits directory metadata length, lower 16 record metadata length
+  uint32_t meta[] ;       // metadata
+} vdir_entry ;
 
 typedef struct{              // directory record to be written on disk
   start_of_record sor ;      // start of record
@@ -249,49 +231,6 @@ typedef struct{              // directory record to be written on disk
   vdir_entry entry[] ;       // open array of directory entries
 //end_of_record eor          // end of record, after last entry, at &entry[entries_nused]
 } disk_vdir ;
-
-typedef struct{              // directory record to be written on disk
-  start_of_record sor ;      // start of record
-  uint32_t entries_nused ;   // number of directory entries used
-  uint32_t meta_dim ;        // size of a directory entry metadata (in 32 bit units)
-  disk_dir_entry entry[] ;   // open array of directory entries
-//end_of_record eor          // end of record, after last entry, at &entry[entries_nused]
-} disk_directory ;
-
-typedef struct{              // directory record to be written on disk
-  start_of_record sor ;      // start of record
-  uint32_t entries_nused ;   // number of directory entries used
-  uint32_t meta_dim ;        // size of a directory entry metadata (in 32 bit units)
-//   disk_dir_entry entry[] ;   // open array of directory entries, 0 entries in empty directory
-  end_of_record eor ;        // end of record, after last entry, at &entry[entries_nused]
-} empty_disk_directory ;
-
-#define EMPTY_DIR { {RT_DIR, 0, ZR_SOR, {0, sizeof(empty_disk_directory)}},  \
-                    0, 0, \
-                    {{0, sizeof(empty_disk_directory)}, RT_DIR, 0, ZR_EOR} }
-
-// size of an empty directory record
-#define RL_EMPTY_DIR ( sizeof(disk_directory) + RL_EOR )
-
-// the following 3 defines MUST BE KEPT CONSISTENT, DIR_PAGE_SIZE MUST BE A POWER OF 2, DIR_PAGE_SHFT is log2(DIR_PAGE_SIZE)
-#define DIR_PAGE_SIZE 512
-#define DIR_PAGE_MASK (DIR_PAGE_SIZE-1)
-#define DIR_PAGE_SHFT 9
-
-// by default a directory page table of DEFAULT_PAGE_TABLE is allocated when opening a file
-#define DEFAULT_PAGE_TABLE 128
-
-typedef struct{            // part of the in-core directory
-  uint64_t wa ;            // offset from segment start
-  uint64_t rl ;            // record length
-} wa_rl ;
-
-typedef struct {                 // directory page in core
-  uint32_t nused ;               // number of entries in use
-  uint32_t nmax ;                // max number of entries in page (normally DIR_PAGE_SIZE)
-  wa_rl    warl[DIR_PAGE_SIZE] ; // file address + length for records
-  uint32_t meta[] ;              // metadata [nmax, meta_dim] (allocated as [DIR_PAGE_SIZE, meta_dim] )
-} dir_page ;
 
 typedef void * pointer ;
 
@@ -349,7 +288,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
 //   fp->next       = NULL ;
 //   fp->name       = NULL ;
   fp->matchfn    = RSF_Default_match ;
-//   fp->pagetable  = NULL ;
+// //   fp->pagetable  = NULL ;
 //   fp->dirblocks  = NULL ;
 //   fp->vdir  = NULL ;
 //   fp->vdir_size  = 0 ;
@@ -379,22 +318,6 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
   fp->curpage    = -1 ;
   fp->lastpage   = -1 ;
 //   fp->lock       =  0 ;
-}
-
-static inline size_t RSF_Disk_dir_entry_size(RSF_File *fp){      // size of a file directory entry
-  return ( (sizeof(uint32_t)*fp->meta_dim + sizeof(disk_dir_entry)) ) ;
-}
-
-static inline size_t RSF_Disk_dir_size(RSF_File *fp){      // size of the record containing the disk directory in file
-  return ( sizeof(disk_directory) +                                                 // base size, includes SOR
-           ( sizeof(uint32_t)*fp->meta_dim + sizeof(disk_dir_entry) )               // disk entry size
-            * (fp->dir_used - fp->dir_read) +                                       //  * nb of records to write
-           sizeof(end_of_record) ) ;                                                // end of record
-}
-
-static inline size_t RSF_Dir_page_size(RSF_File *fp){            // size of a directory page in memory
-  return ( sizeof(dir_page) +                                    // base size, including warl table
-           fp->meta_dim * sizeof(uint32_t) * DIR_PAGE_SIZE ) ;   // metadata for the page
 }
 
 // timeout is in microseconds

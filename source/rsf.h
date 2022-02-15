@@ -46,10 +46,9 @@
 
 #define RT_NULL    0
 #define RT_DATA    1
-#define RT_DIR     2
+#define RT_XDAT    2
 #define RT_SOS     3
 #define RT_EOS     4
-#define RT_XDAT    5
 #define RT_VDIR    6
 #define RT_FILE    7
 #define RT_DEL  0x80
