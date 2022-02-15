@@ -160,16 +160,16 @@ fprintf(stderr,"RSF_Add_vdir_block DEBUG: added block of size %ld, next = %p, fp
 // initialize VARIABLE metadata directory structures
 static void RSF_Vdir_init(RSF_File *fp){
   int i ;
-  if(fp->dirblocks == NULL) {
-    RSF_Add_vdir_block(fp) ;                                // first time around
+  if(fp->dirblocks == NULL) {                                       // first time around
+    RSF_Add_vdir_block(fp) ;
     fp->vdir_size = sizeof(disk_vdir) + sizeof(end_of_record) ;     // fixed part + end_of_record
-fprintf(stderr,"RSF_Vdir_init DEBUG: fp->dir = %p\n", fp->dirblocks) ;
+// fprintf(stderr,"RSF_Vdir_init DEBUG: fp->dir = %p\n", fp->dirblocks) ;
   }
   if(fp->vdir_used >= fp->vdir_slots) {                                     // need more slots, reallocate into larger memory area
     fp->vdir_slots += DIR_SLOTS_INCREMENT ;                                 // increase number of slots
     fp->vdir = (vdir_entry **) realloc(fp->vdir, fp->vdir_slots * sizeof(void *)) ;
     for(i = fp->vdir_used ; i < fp->vdir_slots ; i++) fp->vdir[i] = NULL ;  // nullify new slots
-fprintf(stderr,"RSF_Vdir_init DEBUG: realloc fp->vdir = %p, slots = %d, used = %d\n", fp->vdir, fp->vdir_slots, fp->vdir_used) ;
+// fprintf(stderr,"RSF_Vdir_init DEBUG: realloc fp->vdir = %p, slots = %d, used = %d\n", fp->vdir, fp->vdir_slots, fp->vdir_used) ;
   }
 }
 
@@ -328,7 +328,7 @@ ERROR :
 fprintf(stderr,"RSF_Scan_vdir ERROR : key = %16.16lx, len = %d,  %s\n", key0, lcrit, error) ;
   return badkey ;
 }
-
+#if 0
 // =================================  FIXED metadata size =================================
 
 // add a new blank directory page to the list of pages for file pointed to by fp
@@ -411,7 +411,7 @@ return -1 ;
   
   return slot ;  // the minimum valid value is 0x100000001   (file slot 0, directory index 0)
 }
-
+#endif
 // scan directory of file fp to find a record whose (metadata & mask)  matches (criteria & mask)
 // start one posotion after position indicated by key0 (if key0 == 0, start from beginning)
 // returns file index in upper 32 bits, record index in lower 32 bits (both in origin 1)
@@ -557,16 +557,16 @@ static int32_t RSF_Read_directory(RSF_File *fp){
     segments++ ;
 
     errmsg = "invalid start of record" ;
-fprintf(stderr,"RSF_Read_directory DEBUG offset = %8.8lx, rt = %d, rlm = %d, zr = %d\n", off_seg, sos.head.rt, sos.head.rlm, sos.head.zr);
+// fprintf(stderr,"RSF_Read_directory DEBUG offset = %8.8lx, rt = %d, rlm = %d, zr = %d\n", off_seg, sos.head.rt, sos.head.rlm, sos.head.zr);
     if( RSF_Rl_sor(sos.head, RT_SOS) == 0) goto ERROR ;     // invalid sos record (wrong record type)
     size_seg = RSF_32_to_64(sos.sseg) ;                     // segment size
     if(size_seg == 0) break ;                               // open, compact, this is the last segment
-    dir_off  = RSF_32_to_64(sos.dir) ;                      // offset of directory in segment
+//     dir_off  = RSF_32_to_64(sos.dir) ;                      // offset of directory in segment
     vdir_off  = RSF_32_to_64(sos.vdir) ;                    // offset of vdir in segment
-    dir_size = RSF_32_to_64(sos.dirs) ;                     // directory size from start of segment
+//     dir_size = RSF_32_to_64(sos.dirs) ;                     // directory size from start of segment
     vdir_size = RSF_32_to_64(sos.vdirs) ;                   // vdir size from start of segment
-fprintf(stderr,"RSF_Read_directory DEBUG: segment %d, at %lx, dir_off = %ld, dir_size = %ld", segments, off_seg, dir_off, dir_size) ;
-fprintf(stderr,", vdir_off = %ld, vdir_size = %ld\n", vdir_off, vdir_size) ;
+// fprintf(stderr,"RSF_Read_directory DEBUG: segment %d, at %lx, vdir_off = %ld, vdir_size = %ld\n", segments, off_seg, vdir_off, vdir_size) ;
+// fprintf(stderr,", vdir_off = %ld, vdir_size = %ld\n", vdir_off, vdir_size) ;
     // =======================   VARIABLE metadata length  =======================
     if(vdir_size > 0 && vdir_off > 0) {                     // non empty VARIABLE metadata segment
       fprintf(stderr,"RSF_Read_directory DEBUG: VARIABLE length directory detected size = %ld, off_seg = %lx\n", vdir_size, off_seg);
@@ -590,6 +590,7 @@ fprintf(stderr,", vdir_off = %ld, vdir_size = %ld\n", vdir_off, vdir_size) ;
       vdir = NULL ;                                         // to avoid a double free
       fprintf(stderr,"RSF_Read_directory DEBUG: found %d entries in segment %d\n", l_entries, segments-1) ;
     }
+#if 0
     // =======================   FIXED metadata length  =======================
     if(dir_size > 0 && dir_off > 0) {                       // non empty FIXED metadata segment
       fprintf(stderr,"RSF_Read_directory DEBUG: FIXED length directory detected size = %ld, off_seg = %lx\n", dir_size, off_seg);
@@ -630,6 +631,7 @@ fprintf(stderr,"RSF_Read_directory DEBUG: segment directory wa = %lx, rl = %ld\n
       ddir = NULL ;                                         // to avoid a double free
       fprintf(stderr,"RSF_Read_directory DEBUG: found %d entries in segment %d\n", l_entries, segments-1) ;
     }
+#endif
     off_seg += size_seg ;                                   // offset of the start of the next segment
   }  // while(1)
 fprintf(stderr,"RSF_Read_directory DEBUG: found %d entries in %d segment directories\n", entries, segments) ;
@@ -641,7 +643,7 @@ ERROR:
   if(ddir != NULL) free(ddir) ;
   return -1 ;  
 }
-
+#if 0
 // =======================   FIXED metadata length  =======================
 // write file directory to storage device from memory directory (fixed length metadata)
 // it is NOT assumed that the file is correctly positioned
@@ -705,7 +707,7 @@ fprintf(stderr,"RSF_Write_directory DEBUG : directory written at = %lx\n", fp->n
   free(p) ;
   return dir_rec_size ;
 }
-
+#endif
 // =======================   VARIABLE metadata length  =======================
 static size_t RSF_Vdir_record_size(RSF_File *fp){
   int32_t i, ml ;
@@ -736,7 +738,7 @@ static int64_t RSF_Write_vdir(RSF_File *fp){
   int32_t ml ;
 
   if( ! (slot = RSF_Valid_file(fp)) ) return 0 ;             // something wrong with fp
-fprintf(stderr,"RSF_Write_vdir DEBUG : fp->vdir = %p\n", fp->vdir) ;
+// fprintf(stderr,"RSF_Write_vdir DEBUG : fp->vdir = %p\n", fp->vdir) ;
   if(fp->vdir == NULL) return 0 ;
   dir_rec_size = RSF_Vdir_record_size(fp) ;
 //   dir_rec_size = sizeof(disk_vdir) + sizeof(end_of_record) ;                      // fixed part + end_of_record
@@ -745,9 +747,9 @@ fprintf(stderr,"RSF_Write_vdir DEBUG : fp->vdir = %p\n", fp->vdir) ;
 // // fprintf(stderr,"RSF_Write_vdir DEBUG : record %d, where = %p, ml = %d\n", i, where, fp->vdir[i]->ml) ;
 //     dir_rec_size += ( sizeof(vdir_entry) + fp->vdir[i]->ml * sizeof(uint32_t) );  // fixed part + metadata
 //   }
-fprintf(stderr,"RSF_Write_vdir DEBUG : slot = %d\n", slot)  ;
+// fprintf(stderr,"RSF_Write_vdir DEBUG : slot = %d\n", slot)  ;
   if( ( p = malloc(dir_rec_size) ) == NULL ) return 0 ;      // allocation failed
-fprintf(stderr,"RSF_Write_vdir DEBUG : p = %p\n", p) ;
+// fprintf(stderr,"RSF_Write_vdir DEBUG : p = %p\n", p) ;
   vdir = (disk_vdir *) p ;
   eorp = (end_of_record *) (p + dir_rec_size - sizeof(end_of_record)) ;  // point to eor at end of record
 
@@ -768,9 +770,9 @@ fprintf(stderr,"RSF_Write_vdir DEBUG : p = %p\n", p) ;
 
 // do not start at entry # 0, but entry # fp->dir_read (only write entries from "active" segment)
 // when "fusing" segments, fp->dir_read will be reset to 0
-fprintf(stderr,"RSF_Write_vdir DEBUG : skipping %d records, segment base = %lx\n", fp->dir_read, fp->seg_base) ;
-fprintf(stderr,"RSF_Write_vdir DEBUG : dir_rec_size = %ld ", dir_rec_size) ;
-fprintf(stderr,"RSF_Write_vdir DEBUG : dir_read = %d, vdir_used = %d\n", fp->dir_read, fp->vdir_used) ;
+fprintf(stderr,"RSF_Write_vdir DEBUG : skipping %d records, segment base = %lx", fp->dir_read, fp->seg_base) ;
+fprintf(stderr,", dir_rec_size = %ld ", dir_rec_size) ;
+fprintf(stderr,", dir_read = %d, vdir_used = %d\n", fp->dir_read, fp->vdir_used) ;
 // return 0 ;
   for(i = fp->dir_read ; i < fp->vdir_used ; i++){             // fill from in core directory
     entry = (vdir_entry *) e ;
@@ -786,13 +788,13 @@ fprintf(stderr,"RSF_Write_vdir DEBUG : dir_read = %d, vdir_used = %d\n", fp->dir
 
   if(fp->next_write != fp->cur_pos)                 // set position after last write (SOS or DATA record) if not there yet
     fp->cur_pos = lseek(fp->fd, fp->next_write , SEEK_SET) ;
-fprintf(stderr,"RSF_Write_vdir DEBUG : vdir written at = %lx\n", fp->next_write) ;
+// fprintf(stderr,"RSF_Write_vdir DEBUG : vdir written at = %lx\n", fp->next_write) ;
   n_written = write(fp->fd, vdir, dir_rec_size) ;   // write directory record
 //   if(n_written != dir_rec_size) dir_rec_size = 0 ;  // everything written ?
   fp->next_write += n_written ;                     // update last write position
   fp->cur_pos = fp->next_write ;                    // update file current position
   fp->last_op = OP_WRITE ;                          // last operation was a write
-fprintf(stderr,"RSF_Write_vdir DEBUG : fp->next_write = %lx, vdir record size = %ld \n", fp->next_write, dir_rec_size) ;
+// fprintf(stderr,"RSF_Write_vdir DEBUG : fp->next_write = %lx, vdir record size = %ld \n", fp->next_write, dir_rec_size) ;
 END:
   if(p) free(p) ;
   return dir_rec_size ;
@@ -1110,7 +1112,7 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
   }
 
   // update directory in memory
-  slot = RSF_Add_directory_entry(fp, meta, fp->next_write, record_size) ;
+//   slot = RSF_Add_directory_entry(fp, meta, fp->next_write, record_size) ;
   slot = RSF_Add_vdir_entry(fp, meta, (vdir_meta << 16) + meta_size, fp->next_write, record_size) ;
 //   RSF_Add_vdir_entry(fp, meta, meta_size, fp->next_write, record_size) ;
   meta[0] = meta0 ;                                                 // restore meta[0] to original value
@@ -1823,10 +1825,10 @@ int32_t RSF_Close_file(RSF_handle h){
 //         fp->seg_max, sparse_start, sparse_top, fp->next_write, fp->seg_base);
 offset_vdir = fp->next_write - fp->seg_base ;                    // vdir offset into segment
 vdir_size = RSF_Write_vdir(fp) ;                                 // write vdir,
-offset_eof = offset_dir + vdir_size + sizeof(end_of_segment) ;   // offset_eof points to after eventual eos
+// offset_eof = offset_dir + vdir_size + sizeof(end_of_segment) ;   // offset_eof points to after eventual eos
 
-  offset_dir = fp->next_write - fp->seg_base ;                // directory offset into segment
-  offset_eof = offset_dir + RSF_Disk_dir_size(fp) + sizeof(end_of_segment) ;  // offset_eof points to after eos
+//   offset_dir = fp->next_write - fp->seg_base ;                // directory offset into segment
+//   offset_eof = offset_dir + RSF_Disk_dir_size(fp) + sizeof(end_of_segment) ;  // offset_eof points to after eos
 // fprintf(stderr,"RSF_Close_file DEBUG :, offset_dir = %lx, offset_eof = %lx\n", offset_dir, offset_eof) ;
 // fprintf(stderr,"offset_dir = %16lo, offset_eof = %16lo\n",offset_dir, offset_eof);
   fp->cur_pos = lseek(fp->fd, fp->next_write , SEEK_SET) ;  // reset position of write pointer
@@ -1914,7 +1916,7 @@ CLOSE :
 
   return 1 ;
 }
-
+#if 0
 #define MAX_META 256
 // dump the contents of a file's directory in condensed format
 void RSF_Dump_dir(RSF_handle h) {
@@ -1935,6 +1937,7 @@ void RSF_Dump_dir(RSF_handle h) {
     fprintf(stderr,"\n") ;
   }
 }
+#endif
 
 // dump the contents of a file's directory in condensed format
 void RSF_Dump_vdir(RSF_handle h) {
@@ -1950,7 +1953,7 @@ void RSF_Dump_vdir(RSF_handle h) {
     ventry = fp->vdir[i] ;
     wa = RSF_32_to_64(ventry->wa) ;
     rl = RSF_32_to_64(ventry->rl) ;
-    meta_dim = ventry->ml ;
+    meta_dim = (ventry->ml) >> 16 ;
     meta = &(ventry->meta[0]) ;
     fprintf(stderr,"%12.12lx (%8.8lx)", wa, rl) ;
     for(j = 0 ; j < meta_dim ; j++) fprintf(stderr," %8.8x", meta[j]) ;
@@ -2010,7 +2013,8 @@ void RSF_Dump(char *name, int verbose){
   while(nc > 0) {
     reclen = RSF_32_to_64(sor.rl) ;
     datalen = reclen - sizeof(sor) - sizeof(eor) ;
-    tabplus = ((rec_offset < seg_dir) && (rec_offset < seg_vdir)) ? 8 : 0 ;  // only effective for sos, eos, dir records 
+//     tabplus = ((rec_offset < seg_dir) && (rec_offset < seg_vdir)) ? 8 : 0 ;  // only effective for sos, eos, dir records
+    tabplus = (rec_offset < seg_vdir) ? 8 : 0 ;  // only effective for sos, eos, dir records
     if(sor.rt > 7) {
       snprintf(buffer,sizeof(buffer)," RT%2.2x %5d [%12.12lx], rl = %6ld(%6ld),",sor.rt,  rec, rec_offset, reclen, datalen) ;
       sor.rt = 0 ;
@@ -2024,8 +2028,8 @@ void RSF_Dump(char *name, int verbose){
         d = (disk_directory *) malloc(datalen + sizeof(sor)) ;
         vd = (disk_vdir *) d ;
         nc =  read(fd, d, datalen + sizeof(sor) ) ;  // read directory
-        fprintf(stderr,"  %s meta_dim = %d, records  = %8d, dir offset %8.8lx %s addr %8.8lx, rlm = %d", buffer,
-                d->meta_dim, d->entries_nused, dir_offset, (dir_offset == dir_addr) ? "==": "!=", dir_addr, d->sor.rlm) ;
+        fprintf(stderr,"  %s meta_dim = %d, records  = %8d, dir address %8.8lx %s addr %8.8lx, rlm = %d", buffer,
+                d->meta_dim, d->entries_nused, dir_offset, (dir_offset == vdir_addr) ? "==": "!=", vdir_addr, d->sor.rlm) ;
         break ;
       case 0 :
       case RT_DATA :
@@ -2072,7 +2076,7 @@ void RSF_Dump(char *name, int verbose){
         seg_offset = rec_offset ;
         nc = read(fd, &sos, sizeof(sos) - sizeof(eor)) ;
         meta_dim = sos.meta_dim ;
-        dir_addr = RSF_32_to_64(sos.dir) ;
+//         dir_addr = RSF_32_to_64(sos.dir) ;
         vdir_addr = RSF_32_to_64(sos.vdir) ;
         segsize  = RSF_32_to_64(sos.sseg) ;
         ssize    = RSF_32_to_64(sos.seg) ;
@@ -2098,7 +2102,7 @@ void RSF_Dump(char *name, int verbose){
         meta_dim = eos.h.meta_dim ;
         segsize  = RSF_32_to_64(eos.h.sseg) ;
         ssize    = RSF_32_to_64(sos.seg) ;
-        dir_addr = RSF_32_to_64(eos.h.dir) ;
+//         dir_addr = RSF_32_to_64(eos.h.dir) ;
         vdir_addr = RSF_32_to_64(eos.h.vdir) ;
         fprintf(stderr,"%s",(reclen > sizeof(end_of_segment)) ? "<>" : "  " ) ;
         fprintf(stderr,"%s meta_dim = %d, seg size = %8ld, dir_offset = %8.8lx %8.8lx, rlm = %d", buffer,

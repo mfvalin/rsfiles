@@ -75,7 +75,7 @@ int the_test(int argc, char **argv){
   }else{
     h1 = RSF_Open_file(argv[1], RSF_RO, &meta_dim, "demo", NULL);  // open file
     fprintf(stderr,"file '%s', meta_dim = %d\n",argv[1],meta_dim) ;
-    RSF_Dump_dir(h1) ;                                             // dump memory directoey
+    RSF_Dump_vdir(h1) ;                                             // dump memory directoey
   }
   return(0) ;
 }
@@ -163,7 +163,7 @@ int the_test(int argc, char **argv){
     fprintf(stderr,"====== Fusing segments (last process) ======\n") ;
     h1 = RSF_Open_file(argv[1], RSF_RW + RSF_FUSE, &meta_dim, "DeMo", NULL);
 //     h1 = RSF_Open_file(argv[1], RSF_RO , &meta_dim, "DeMo", NULL);
-    RSF_Dump_dir(h1) ;
+    RSF_Dump_vdir(h1) ;
     RSF_Close_file(h1) ;
   }
 END :
