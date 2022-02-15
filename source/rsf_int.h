@@ -145,8 +145,8 @@ typedef struct{           // start of segment record, matched by a corresponding
   uint32_t meta_dim ;     // directory entry metadata size (uint32_t units)
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes) (excluding EOS record)
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of segment size (bytes) (including EOS record)
-  uint32_t dir[2] ;       // upper[0], lower[1] 32 bits of directory record offset in segment (bytes)
-  uint32_t dirs[2] ;      // upper[0], lower[1] 32 bits of directory record size (bytes)
+//   uint32_t Dir[2] ;       // upper[0], lower[1] 32 bits of directory record offset in segment (bytes)
+//   uint32_t Dirs[2] ;      // upper[0], lower[1] 32 bits of directory record size (bytes)
   uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
   uint32_t vdirs[2] ;     // upper[0], lower[1] 32 bits of variable directory record size (bytes)
   end_of_record tail ;    // rt=3
@@ -161,7 +161,7 @@ static inline uint64_t RSF_Rl_sos(start_of_segment sos){
 }
 
 #define SOS { {RT_SOS, 0, ZR_SOR, {0, sizeof(start_of_segment)}},  \
-              {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
+              {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
               {{0, sizeof(start_of_segment)}, RT_SOS, 0, ZR_EOR} }
 
 // static start_of_segment sos0 = SOS ;
@@ -178,8 +178,8 @@ typedef struct{           // tail part of end_of_segment record (high address in
   uint32_t meta_dim ;     // directory entry metadata size (uint32_t units)
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes)
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of sparse segment size (bytes) (0 if not sparse file)
-  uint32_t dir[2] ;       // upper[0], lower[1] 32 bits of directory record offset in segment (bytes)
-  uint32_t dirs[2] ;      // upper[0], lower[1] 32 bits of directory record size (bytes)
+//   uint32_t Dir[2] ;       // upper[0], lower[1] 32 bits of directory record offset in segment (bytes)
+//   uint32_t Dirs[2] ;      // upper[0], lower[1] 32 bits of directory record size (bytes)
   uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
   uint32_t vdirs[2] ;     // upper[0], lower[1] 32 bits of variable directory record size (bytes)
   end_of_record tail ;    // rt=4
@@ -199,7 +199,7 @@ static inline uint64_t RSF_Rl_eos(end_of_segment_lo eosl, end_of_segment_hi eosh
   return rl1 ;
 }
 
-#define EOSHI { 0xCAFEFADE, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
+#define EOSHI { 0xCAFEFADE, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
               {{0, sizeof(end_of_segment_lo)+sizeof(end_of_segment_hi)}, RT_EOS, 0, ZR_EOR} }
 
 typedef struct{           // compact end of segment (non sparse file)
@@ -222,9 +222,18 @@ struct directory_block{
 typedef struct{
   uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment (or file)
   uint32_t rl[2] ;        // upper[0], lower[1] 32 bits of record length (bytes)
-  uint32_t ml ;           // upper 16 bits file metadata length, lower 16 directory metadata length
+  uint32_t ml ;           // upper 16 bits directory metadata length, lower 16 record metadata length
   uint32_t meta[] ;       // metadata
 } vdir_entry ;
+
+// directory metadata length : upper 16 bits if non zero, lower 16 bits if upper 16 are zero
+#define DIR_ML(DRML) ( ((DRML) >> 16) == 0 ? (DRML) : ((DRML) >> 16) )
+// record metadata length : lower 16 bits
+#define REC_ML(DRML) ( (DRML) & 0xFFFF)
+// build composite ml field 
+#define DRML_32(ml_dir, ml_rec)  ( ( (ml_dir) << 16 ) | ( (ml_rec) & 0xFFFF ) )
+// propagate lower 16 bits into upper 16 bits if upper 16 are zero
+#define DRML_FIX(ML) ( ((ML) >> 16) == 0 ? ((ML) <<16) | (ML) : (ML) )
 
 typedef struct{           // disk directory entry (one per record)
   uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment
@@ -237,7 +246,7 @@ typedef struct{              // directory record to be written on disk
   start_of_record sor ;      // start of record
   uint32_t entries_nused ;   // number of directory entries used
   uint32_t meta_dim ;        // size of a directory entry metadata (in 32 bit units)
-  vdir_entry entry[] ;   // open array of directory entries
+  vdir_entry entry[] ;       // open array of directory entries
 //end_of_record eor          // end of record, after last entry, at &entry[entries_nused]
 } disk_vdir ;
 
@@ -299,7 +308,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   RSF_File *next ;               // pointer to next file if "linked" (NULL if not linked)
   char *name ;                   // file name (canonicalized absolute path name)
   RSF_Match_fn *matchfn ;        // pointer to metadata matching function
-  dir_page **pagetable ;         // directory page table (pointers to directory pages for this file)
+//   dir_page **pagetable ;         // directory page table (pointers to directory pages for this file)
   directory_block *dirblocks ;   // first "block" of directory data
   vdir_entry **vdir ;            // pointer to table of vdir_entry pointers
   uint64_t vdir_size ;           // total size of vdir entries

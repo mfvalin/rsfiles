@@ -53,7 +53,6 @@ int the_test(int argc, char **argv){
 #if defined(RSF_DUMP)
 
 #include <rsf.h>
-#define META_SIZE 6
 void usage(char **argv){
   fprintf(stderr,"usage : %s rsf_file [verbose]\n",argv[0]);
 }
@@ -62,6 +61,9 @@ int the_test(int argc, char **argv){
   char command[1024] ;
   RSF_handle h1 ;
   int32_t meta_dim = 0 ;
+  int i ;
+  uint64_t key ;
+  void *p ;
 
   if(argc < 2){
     usage(argv) ;
@@ -75,6 +77,12 @@ int the_test(int argc, char **argv){
   }else{
     h1 = RSF_Open_file(argv[1], RSF_RO, &meta_dim, "demo", NULL);  // open file
     fprintf(stderr,"file '%s', meta_dim = %d\n",argv[1],meta_dim) ;
+    for(i = 0 ; i < 5 ; i++) {
+      key = i + 1 ;
+      key += 0x100000000ul ;         // simulate file slot 0 for this file
+      p = RSF_Get_record(h1, key) ;
+      if(p) free(p) ;
+    }
     RSF_Dump_vdir(h1) ;                                             // dump memory directoey
   }
   return(0) ;
