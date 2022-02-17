@@ -115,6 +115,7 @@ int the_test(int argc, char **argv){
   uint32_t *metaf, fmeta_size ;
   int64_t put_slot[NREC] ;
   int64_t file_slot[NREC] ;
+  char command[1024] ;
 
   MPI_Init(&argc, &argv) ;
   MPI_Comm_rank(MPI_COMM_WORLD, &my_rank) ;
@@ -168,6 +169,8 @@ int the_test(int argc, char **argv){
   MPI_Barrier(MPI_COMM_WORLD) ;
 // goto END ;
   if(my_rank == nprocs -1){
+    snprintf(command, sizeof(command), "cp %s %s.bak", argv[1], argv[1]) ;
+    system(command) ;
     fprintf(stderr,"====== Fusing segments (last process) ======\n") ;
     h1 = RSF_Open_file(argv[1], RSF_RW + RSF_FUSE, &meta_dim, "DeMo", NULL);
 //     h1 = RSF_Open_file(argv[1], RSF_RO , &meta_dim, "DeMo", NULL);

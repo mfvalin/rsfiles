@@ -198,6 +198,11 @@ typedef struct{           // compact end of segment (non sparse file)
 
 #define EOS { EOSLO , EOSHI }
 
+// memory directory entries are stored in a chain of directory blocks
+// the size of entries[] will be DIR_BLOCK_SIZE
+// the size of a block will be sizeof(directory_block) + DIR_BLOCK_SIZE
+// pointer for entry associated with record N will be found in RSF_file->vdir[N]
+// if array RSF_file->vdir is too small, it is reallocated in increments of DIR_SLOTS_INCREMENT
 typedef struct directory_block directory_block ;
 #define DIR_BLOCK_SIZE 512
 #define DIR_SLOTS_INCREMENT 8
@@ -217,20 +222,21 @@ struct directory_block{
 // propagate lower 16 bits into upper 16 bits if upper 16 are zero
 #define DRML_FIX(ML) ( ((ML) >> 16) == 0 ? ((ML) <<16) | (ML) : (ML) )
 
-typedef struct{
+typedef struct{           // directory entry (both file and memory)
   uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment (or file)
   uint32_t rl[2] ;        // upper[0], lower[1] 32 bits of record length (bytes)
   uint32_t ml ;           // upper 16 bits directory metadata length, lower 16 record metadata length
-  uint32_t meta[] ;       // metadata
+  uint32_t meta[] ;       // open array for metadata
 } vdir_entry ;
 
-typedef struct{              // directory record to be written on disk
+typedef struct{              // directory record to be written to file
   start_of_record sor ;      // start of record
   uint32_t entries_nused ;   // number of directory entries used
   uint32_t meta_dim ;        // size of a directory entry metadata (in 32 bit units)
   vdir_entry entry[] ;       // open array of directory entries
 //end_of_record eor          // end of record, after last entry, at &entry[entries_nused]
 } disk_vdir ;
+#define DISK_VDIR_BASE_SIZE  ( sizeof(disk_vdir) + sizeof(end_of_record) )
 
 typedef void * pointer ;
 
@@ -249,8 +255,8 @@ struct RSF_File{                 // internal (in memory) structure for access to
   RSF_Match_fn *matchfn ;        // pointer to metadata matching function
 //   dir_page **pagetable ;         // directory page table (pointers to directory pages for this file)
   directory_block *dirblocks ;   // first "block" of directory data
-  vdir_entry **vdir ;            // pointer to table of vdir_entry pointers
-  uint64_t vdir_size ;           // total size of vdir entries
+  vdir_entry **vdir ;            // pointer to table of vdir_entry pointers (reallocated larger if it gets too small)
+  uint64_t vdir_size ;           // total size of vdir entries (future size of directory record in file)
   uint64_t seg_base ;            // base address in file of the current active segment (0 if only one segment)
   uint64_t file_wa0 ;            // file address origin (normally 0) (used for file within file access)
   start_of_segment sos0 ;        // start of segment of first segment (as it was read from file)
@@ -264,19 +270,14 @@ struct RSF_File{                 // internal (in memory) structure for access to
   uint32_t rec_class ;           // record class being writen (default : data class 1) (rightmost 24 bits only)
   uint32_t class_mask ;          // record class mask (for scan/read/...) (by default all ones)
   uint32_t dir_read ;            // number of entries read from file directory 
-  uint32_t dir_slots ;           // max number of entries in directory (nb of directory pages * DIR_PAGE_SIZE)
-  uint32_t dir_used ;            // number of directory entries in use (all pages belonging to this file/segment)
-  uint32_t vdir_slots ;
-  uint32_t vdir_used ;
-  int32_t  slot ;                // slot number of file (-1 if invalid)
+  uint32_t vdir_slots ;          // current size of vdir[] table of pointers to directory entries
+  uint32_t vdir_used ;           // number of used pointers in vdir[] table
+  int32_t  slot ;                // file slot number of file (-1 if invalid)
   uint32_t nwritten ;            // number of records written (useful when closing after write)
-  uint16_t isnew ;               // new segment indicator
-  uint16_t last_op ;             // last operation (1 = read) (2 = write) (0 = unknown/invalid)
-  uint16_t mode ;                // file mode (RO/RW/AP/...)
-  int16_t  dirpages ;            // number of available directory pages (-1 if none )
-  int16_t  curpage ;             // current page in use (-1 if not defined)
-  int16_t  lastpage ;            // last directory page in use (-1 if not defined)
   int32_t  lock ;                // used to lock the file for thread safety
+  uint16_t mode ;                // file mode (RO/RW/AP/...)
+  uint8_t isnew ;                // new segment indicator
+  uint8_t last_op ;              // last operation (1 = read) (2 = write) (0 = unknown/invalid)
 } ;
 
 // NOTE : explicit_bzero not available everywhere
@@ -311,13 +312,10 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
 //   fp->vdir_used   =  0 ;
   fp->slot       = -1 ;
 //   fp->nwritten   =  0 ;
+//   fp->lock       =  0 ;
+//   fp->mode       =  0 ;
 //   fp->isnew      =  0 ;
 //   fp->last_op    =  0 ;
-//   fp->mode       =  0 ;
-  fp->dirpages   = -1 ;
-  fp->curpage    = -1 ;
-  fp->lastpage   = -1 ;
-//   fp->lock       =  0 ;
 }
 
 // timeout is in microseconds

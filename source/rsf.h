@@ -163,16 +163,17 @@ interface
 #endif
 
 #if defined(IN_FORTRAN_CODE)
-  function RSF_Lookup(handle, key0, criteria, mask) result(key) bind(C,name='RSF_Lookup')
+  function RSF_Lookup(handle, key0, criteria, mask, lcrit) result(key) bind(C,name='RSF_Lookup')
     import :: RSF_handle, C_INT32_T, C_INT64_T
     implicit none
     type(RSF_handle), intent(IN), value :: handle
     integer(C_INT64_T), intent(IN), value :: key0
     integer(C_INT32_T), intent(IN), dimension(*) :: criteria, mask
+    integer(C_INT32_T), intent(IN), value :: lcrit
     integer(C_INT64_T) :: key
   end function RSF_Lookup
 #else
-  int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mask) ;
+  int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mask, uint32_t lcrit) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
