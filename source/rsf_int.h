@@ -17,25 +17,76 @@
 
 #include <rsf.h>
 
-// Random Segmented Files internal (private) definitions and structures
+// Random Segmented Files (RSF) internal (private) definitions and structures
 //
-// for endianness purposes, these files are composed of 32 bit items
-// 64 bit quantities are represented with a pair of 32 bit values, Most Significant Part first
-// record/segment lengths are always multiples of 8 bytes
+//           file structure (N segments)
+// +-----------+-----------+                  +-----------+
+// | segment 1 | segment 2 |..................| segment N |
+// +-----------+-----------+                  +-----------+
+//
+//           segment structure (compact segment)
+//           data and directory may be absent (empty segment)
+// +-----+------+               +------+-----------+------+------+
+// | SOS | data |------data-----| data | directory | EOSl | EOSh |
+// +-----+------+               +------+-----------+------+------+
+//           segment structure (sparse segment)
+//           data and directory may be absent (empty segment)
+// +-----+------+               +------+-----------+------+               +------+
+// | SOS | data |------data-----| data | directory | EOSl |......gap......| EOSh |
+// +-----+------+               +------+-----------+------+               +------+
+// SOS       start of data record
+// data      data record
+// directory
+// EOSl      low part of end of segment record
+// EOSh      high part of end of segment record
+// gap       unpopulated zone in file address space (sparse file)
 
-// record type rt values
-// 0   : INVALID
-// 1   : data record
-// 2   : segment directory record
-// 3   : start of segment record
-// 4   : end of segment record
-// 5   : xdata record
-// 128 : deleted record
+//    structure of a record (array of 32 bit items)
+//      ZR    RLM    RT   RL[0]   RL[1]   LMETA                                       RL[0]   RL[1]   ZR    RLM    RT
+//    +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
+//    |    |       |    |       |       | LMETA | METADATA |       DATA             |       |       |    |       |    |
+//    +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
+//    <---------- start of record (SOR) -------->                                   <------- end of record (EOR) ----->
+//      8     16     8     32      32    16/8/8   RLM x 32                             32      32      8    16     8   (# of bits)
+//    <--------------------------------------------  RL[0] * 2**32 + RL[1] bytes  ------------------------------------>
+//  ZR    : marker (0xFE for SOR, 0xFF for EOR)
+//  RLM   : length of metadata in 32 bit units (data record)
+//          RLM in a data record MAY be larger than directory length of metadata
+//          (secondary metadata not in directory)
+//        : open-for-write flag (Start of segment record) (0 if not open for write)
+//        : undefined (End of segment or other record)
+// LMETA  : record local metadata, RLMD, UBC, DUL [] )
+//          RLMD (16 bits) directory metadata length for this record
+//          UBC  ( 8 bits) Unused Bit Count (RL is always a multiple of 4 Bytes)
+//          DUL  ( 8 bits) Data Unit Length (1/2/4/8 bytes) for Endianness adjustment
+//  RT    : record type (normally 0 -> 0x80)
+//  RL    : record length = RL[0] * 2**32 + RL[1] bytes (ALWAYS a multiple of 4 bytes)
+//
+// for endianness purposes, these files are mostly composed of 32 bit items, 
+// but 8/16/32/64 data items may be found in these files (identified as such)
+// 64 bit quantities can be represented with a pair of 32 bit values, Most Significant Part first
+// record/segment lengths are always multiples of 4 bytes
+// the first segment of a file MUST be a compact segment (CANNOT be a sparse segment)
+// a segment can be opened for write into ONCE, and cannot be reopened to append data into it
+// a sparse segment becomes a compact segment when closed (a dummy sparse segment takes the remaining space)
+// the concatenation of 2 RSF files is a valid RSF file
+// RSF files may be used as containers for other files
+
+// main record type rt values
+// 0     : INVALID
+// 1     : data record
+// 2     : xdata record (extension record)
+// 3     : start of segment record
+// 4     : end of segment record
+// 6     : segment directory record
+// 7     : the record contains a file
+// 8-127 : custom records (not defined yet)
+// 128   : deleted record
 //
 // rt:rlm:zr can be used for endianness detection, least significant byte (zr) ZR_xx, most significant byte (rt) RT_xx
 // rt and zr can never have the same value (RT = 0->128 , ZR = 254->255)
 // the zr field is 0xFE for start_of_record and 0xFF for end_of_record
-// max record length is 2**48 - 1 bytes (rl in bytes) (256 TBytes)
+// max record length is 2**48 - 1 bytes (rl is in bytes) (256 TBytes) (for now)
 
 #define ZR_SOR  0XFE
 #define ZR_EOR  0xFF
@@ -58,26 +109,6 @@ static inline void RSF_64_to_32(uint32_t u32[2], uint64_t u64){
   u32[0] = (u64 >> 32) ;
   u32[1] = (u64 & 0xFFFFFFFFu) ;
 }
-
-//    structure of a record (array of 32 bit items)
-//      ZR    RLM    RT   RL[0]   RL[1]   LMETA                                       RL[0]   RL[1]   ZR    RLM    RT
-//    +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
-//    |    |       |    |       |       | LMETA | METADATA |       DATA             |       |       |    |       |    |
-//    +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
-//      8     16     8     32      32    16/8/8   RLM x 32                             32      32      8    16     8   (# of bits)
-//    <--------------------------------------------  RL[0] * 2**32 + RL[1] bytes  ------------------------------------>
-//  ZR    : marker
-//  RLM   : length of metadata in 32 bit units (data record)
-//          RLM in a data record MAY be larger than directory length of metadata
-//          (secondary metadata not in directory)
-//        : open-for-write flag (Start of segment record) (0 if not open for write)
-//        : undefined (End of segment or other record)
-// LMETA  : record local metadata, RLMD, UBC, DUL [] )
-//          RLMD (16 bits) directory metadata length for this record
-//          UBC  ( 8 bits) Unused Bit Count (RL is always a multiple of 4 Bytes)
-//          DUL  ( 8 bits) Data Unit Length (1/2/4/8 bytes) for Endianness adjustment
-//  RT    : record type
-//  RL    : record length = RL[0] * 2**32 + RL[1] bytes (ALWAYS a multiple of 4 bytes)
 
 typedef struct {                   // record header
   uint32_t rt:8, rlm:16, zr:8 ;    // ZR_SOR, metadata length (32 bit units), record type
