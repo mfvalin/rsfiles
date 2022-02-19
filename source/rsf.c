@@ -440,6 +440,8 @@ static int64_t RSF_Write_vdir(RSF_File *fp){
 
   if( ! (slot = RSF_Valid_file(fp)) ) return 0 ;             // something wrong with fp
 // fprintf(stderr,"RSF_Write_vdir DEBUG : fp->vdir = %p\n", fp->vdir) ;
+  if(fp->dir_read >= fp->vdir_used) return 0 ;               // directory is empty
+
   if(fp->vdir == NULL) return 0 ;
   dir_rec_size = RSF_Vdir_record_size(fp) ;
 // fprintf(stderr,"RSF_Write_vdir DEBUG : slot = %d\n", slot)  ;
@@ -469,7 +471,7 @@ fprintf(stderr,"RSF_Write_vdir DEBUG : skipping %d records, segment base = %lx",
 fprintf(stderr,", dir_rec_size = %ld ", dir_rec_size) ;
 fprintf(stderr,", dir_read = %d, vdir_used = %d\n", fp->dir_read, fp->vdir_used) ;
 // return 0 ;
-  for(i = fp->dir_read ; i < fp->vdir_used ; i++){             // fill from in core directory
+  for(i = fp->dir_read ; i < fp->vdir_used ; i++){             // fill from in memory directory
     entry = (vdir_entry *) e ;
 //     ml = (fp->vdir[i]->ml) >> 16 ;
     ml = DIR_ML(fp->vdir[i]->ml) ;
@@ -1139,9 +1141,9 @@ int32_t RSF_Valid_handle(RSF_handle h){
   return 0 ;
 }
 
-// lock/unlock file associated with file descriptor fd
+// lock/unlock file associated with file descriptor fp->fd
 // lock == 1 : lock, lock == 0 : unlock
-static int32_t RSF_File_lock(int fd, int lock){
+static int32_t RSF_File_lock(RSF_File *fp, int lock){
   struct flock file_lock ;
   int status ;
 
@@ -1151,18 +1153,18 @@ static int32_t RSF_File_lock(int fd, int lock){
 
   if(lock){                                      // LOCK file
     file_lock.l_type = F_WRLCK ;                 // exclusive lock
-    status = fcntl(fd, F_SETLK, &file_lock) ;    // do not wait
+    status = fcntl(fp->fd, F_SETLK, &file_lock) ;    // do not wait
     while ( status != 0) {
-      status = fcntl(fd, F_GETLK, &file_lock) ;  // find which process holds the lock
+      status = fcntl(fp->fd, F_GETLK, &file_lock) ;  // find which process holds the lock
       fprintf(stderr,"RSF_File_lock DEBUG : %d blocked by pid = %d\n", getpid(), file_lock.l_pid) ;
       usleep(1000) ;                             // wait 1 millisecond
-      status = fcntl(fd, F_SETLK, &file_lock) ;  // try again
+      status = fcntl(fp->fd, F_SETLK, &file_lock) ;  // try again
     }
     fprintf(stderr,"RSF_File_lock DEBUG : locked by pid %d\n", getpid());
 
   }else{                                         // UNLOCK file
     file_lock.l_type = F_UNLCK ;                 // release lock
-    status = fcntl(fd, F_SETLK, &file_lock) ;
+    status = fcntl(fp->fd, F_SETLK, &file_lock) ;
     fprintf(stderr,"RSF_File_lock DEBUG : released by pid %d\n", getpid());
   }
   return status ;                                // 0 if successful, -1 in case of error
@@ -1185,8 +1187,7 @@ int RSF_New_empty_segment(RSF_File *fp, int32_t meta_dim, const char *appl, uint
   int status = -1 ;
 
 // fprintf(stderr,"RSF_New_empty_segment DEBUG: waiting for lock, pid = %d\n",getpid());
-//   RSF_File_lock(fp->fd, start, sizeof(start_of_segment), 1) ;    // lock file address range 
-  RSF_File_lock(fp->fd, 1) ;    // lock file address range 
+  RSF_File_lock(fp, 1) ;    // lock file address range 
 // fprintf(stderr,"RSF_New_empty_segment DEBUG: lock acquired, pid = %d\n",getpid());
 usleep(1000) ;
   nc = read(fp->fd, &sos0, sizeof(start_of_segment)) ;           // try to read first start of segment into sos0
@@ -1317,8 +1318,7 @@ fprintf(stderr, "RSF_New_empty_segment DEBUG : MUST NOT PRINT\n");
 // fprintf(stderr,"after segment create %ld\n", lseek(fp->fd, 0L , SEEK_CUR));
 // system("ls -l demo0.rsf") ;
 ERROR :
-//   RSF_File_lock(fp->fd, start, sizeof(start_of_segment), 0) ;  // unlock file address range
-  RSF_File_lock(fp->fd, 0) ;  // unlock file address range
+  RSF_File_lock(fp, 0) ;  // unlock file address range
 // fprintf(stderr,"RSF_New_empty_segment DEBUG: lock released, pid = %d\n",getpid());
   return status ;
 }
@@ -1460,26 +1460,44 @@ fprintf(stderr,"RSF_Open_file ERROR : '%s' %s\n", fname, errmsg);
   return handle ;                          // return a NULL handle
 }
 
-// close a RSF sparse file segment, without closing the file
-int32_t RSF_Close_segment(RSF_handle h){
+// close a RSF compact file segment, without closing the file
+// write directory record
+// write EOS record for compact segment
+// rewrite original SOS, (segment 0 SOS if FUSING segments)
+int32_t RSF_Close_compact_segment(RSF_handle h){
   RSF_File *fp = (RSF_File *) h.p ;
   int slot ;
-  off_t offset_vdir, offset_eof, cur ;
   ssize_t nc ;
-  uint64_t vdir_size, sparse_start, sparse_top, sparse_size, rl_eos ;
+  uint64_t vdir_size ;
+  off_t offset_vdir, offset_eof, cur ;
   start_of_segment sos = SOS ;
   end_of_segment eos = EOS ;
 
   if( ! (slot = RSF_Valid_file(fp)) ) return 0 ;   // something not O.K. with fp
+  if( (fp->mode & RSF_RO) == RSF_RO) return 1 ;    // file open in read only mode, nothing to do
 
-  if(fp->seg_max == 0) return 1 ; // not a sparse segment
+  if(fp->seg_max != 0) return 1 ;                  // not a compact segment
 
-  // write directory
+  if( (fp->mode & RSF_FUSE) == RSF_FUSE ) {
+    if(fp->seg_base > 0) {                                      // no need to fuse if segment 0
+      lseek(fp->fd, fp->seg_base , SEEK_SET) ;                  // seek to start of this segment
+      nc = write(fp->fd, &sos, sizeof(start_of_segment)) ;      // nullify original start_of_segment
+      fp->seg_base = 0 ;                                        // segment 0 will become the only segment in file
+      fp->isnew = 1 ;                                           // saved sos0 will not be used
+      fp->dir_read = 0 ;                                        // all directory entries will be written
+      fprintf(stderr,"RSF_Close_compact_segment DEBUG : fusing all segments into one\n") ;
+    }
+    return 1 ;
+  }
+
+  // write directory, but move dir_read to avoid writng same record directory entries again
   offset_vdir = fp->next_write - fp->seg_base ;                    // vdir offset into segment
-  vdir_size = RSF_Write_vdir(fp) ;                                 // write vdir,
-  fp->cur_pos = lseek(fp->fd, fp->next_write , SEEK_SET) ;         // reset position of write pointer
+  vdir_size = RSF_Write_vdir(fp) ;                                 // write vdir
+  if(vdir_size == 0) offset_vdir = 0 ;                             // no directory
+  fp->dir_read = fp->vdir_used ;                                   // keep current directory info (no writing again)
+  fp->cur_pos = lseek(fp->fd, fp->next_write , SEEK_SET) ;         // set position of write pointer
 
-  // write compact segment EOS
+  // write active compact segment EOS
   offset_eof = fp->next_write - fp->seg_base  + sizeof(end_of_segment);
   eos.l.head.rlm = fp->meta_dim ;
   RSF_64_to_32(eos.l.head.rl, sizeof(end_of_segment)) ;
@@ -1492,12 +1510,78 @@ int32_t RSF_Close_segment(RSF_handle h){
   RSF_64_to_32(eos.h.tail.rl, sizeof(end_of_segment)) ;
   nc = write(fp->fd, &eos, sizeof(end_of_segment)) ;               // write end of compact segment
 
+  // rewrite active segment SOS (segment 0 SOS if FUSING)
+  lseek(fp->fd, fp->seg_base , SEEK_SET) ;
+  nc = read(fp->fd, &sos, sizeof(start_of_segment)) ;   // read start of segment (to keep appl signature)
+  RSF_64_to_32(sos.vdir,  offset_vdir) ;           // vdir record position in file
+  RSF_64_to_32(sos.vdirs, vdir_size) ;             // directory record size
+  RSF_64_to_32(sos.sseg,  offset_eof) ;            // segment size including EOS
+  RSF_64_to_32(sos.seg,  offset_eof - sizeof(end_of_segment)) ;             // segment size excluding EOS
+  sos.head.rlm = 0 ;    // fix SOR of appropriate SOS record if file was open in write mode
+  cur = lseek(fp->fd, fp->seg_base , SEEK_SET) ;
+  nc = write(fp->fd, &sos, sizeof(start_of_segment)) ;      // rewrite start of active segment
+
+  return 1 ;
+}
+
+// close a RSF sparse file segment, allocate a new one of the same size, switch file to new segment
+// write directory record
+// SOS of sparse segment must be rewritten (segment becomes compact)
+// EOS of compact segment must be written
+// SOS for the sparse segment that gets the remaining space must be written
+// a split EOS record for the sparse segment must be written
+// lock file
+// allocate a new sparse segment
+// write SOS and split EOS for new segment
+// unlock file
+// switch fp control fields to new segment
+int32_t RSF_Switch_sparse_segment(RSF_handle h){
+  RSF_File *fp = (RSF_File *) h.p ;
+  int i, slot ;
+  off_t offset_vdir, offset_eof, cur ;
+  ssize_t nc ;
+  uint64_t vdir_size, sparse_start, sparse_top, sparse_size, rl_eos, rl_sparse ;
+  start_of_segment sos = SOS ;
+  start_of_segment sos2 = SOS ;
+  end_of_segment eos = EOS ;
+  end_of_segment eos2 = EOS ;
+// sleep(1) ;
+  if( ! (slot = RSF_Valid_file(fp)) ) return 0 ;   // something not O.K. with fp
+  if( (fp->mode & RSF_RO) == RSF_RO) return 1 ;    // file open in read only mode, nothing to do
+
+  if(fp->seg_max == 0) return 1 ; // not a sparse segment
+
+  // write directory, but move dir_read to avoid writing same record information again
+  offset_vdir = fp->next_write - fp->seg_base ;                    // vdir offset into segment
+// fprintf(stderr,"RSF_Switch DEBUG : offset_vdir = %12.12lx (%12.12x)\n", offset_vdir, fp->next_write) ;
+  vdir_size = RSF_Write_vdir(fp) ;                                 // write vdir
+  if(vdir_size == 0) offset_vdir = 0 ;                             // no directory
+  fp->dir_read = fp->vdir_used ;                                   // keep current directory info
+  fp->cur_pos = lseek(fp->fd, fp->next_write , SEEK_SET) ;         // set position of write pointer
+
+  // write compact segment EOS
+  offset_eof = fp->next_write - fp->seg_base  + sizeof(end_of_segment);
+  eos.l.head.rlm = fp->meta_dim ;
+  RSF_64_to_32(eos.l.head.rl, sizeof(end_of_segment)) ;
+  eos.h.meta_dim = fp->meta_dim ;
+  RSF_64_to_32(eos.h.vdir,  offset_vdir) ;                         // vdir record position in file
+  RSF_64_to_32(eos.h.vdirs, vdir_size) ;                           // vdir record size
+  RSF_64_to_32(eos.h.sseg, offset_eof) ;                           // segment size including EOS
+  RSF_64_to_32(eos.h.seg,  offset_eof - sizeof(end_of_segment)) ;  // segment size excluding EOS
+  eos.h.tail.rlm = fp->meta_dim ;
+  RSF_64_to_32(eos.h.tail.rl, sizeof(end_of_segment)) ;
+// cur = lseek(fp->fd, 0L, SEEK_CUR) ;
+// fprintf(stderr,"RSF_Switch DEBUG : eos at %12.12x\n", cur) ;
+  nc = write(fp->fd, &eos, sizeof(end_of_segment)) ;               // write end of compact segment
+
   // write sparse segment SOS
   sparse_start = lseek(fp->fd, 0L, SEEK_CUR) ;                     // start of sparse segment after compact EOS
   sparse_top = fp->seg_base + fp->seg_max ;                        // end of sparse segment
   sparse_size = sparse_top - sparse_start ;                        // new sparse segment size
   RSF_64_to_32(sos.seg, 0L) ;
   RSF_64_to_32(sos.sseg, sparse_size) ;
+// cur = lseek(fp->fd, 0L, SEEK_CUR) ;
+// fprintf(stderr,"RSF_Switch DEBUG : sparse sos at %12.12x\n", cur) ;
   nc = write(fp->fd, &sos, sizeof(start_of_segment)) ;
 
   // fix sparse segment EOS
@@ -1508,9 +1592,59 @@ int32_t RSF_Close_segment(RSF_handle h){
   RSF_64_to_32(eos.h.tail.rl, rl_eos) ;
   RSF_64_to_32(eos.h.sseg, sparse_size) ;                          // size of sparse segment
   cur = lseek(fp->fd, rl_eos - sizeof(end_of_segment_hi) - sizeof(end_of_segment_lo), SEEK_CUR);
+// fprintf(stderr,"RSF_Switch DEBUG : sparse eos at %12.12x\n", cur) ;
   nc = write(fp->fd, &eos.h, sizeof(end_of_segment_hi)) ;          // write high part of EOS
 
-  // make original segment (sparse) into a compact segment (segment 0 a special case)
+  // make original segment (sparse) into a compact segment (cannot be segment 0)
+  cur = lseek(fp->fd, fp->seg_base , SEEK_SET) ;
+  nc = read(fp->fd, &sos, sizeof(start_of_segment)) ;              // read start of segment (to keep appl signature)
+  RSF_64_to_32(sos.vdir,  offset_vdir) ;                           // vdir record position in file
+  RSF_64_to_32(sos.vdirs, vdir_size) ;                             // vdir record size
+  RSF_64_to_32(sos.sseg,  offset_eof) ;                            // segment size including EOS
+  RSF_64_to_32(sos.seg,  offset_eof - sizeof(end_of_segment)) ;    // segment size excluding EOS
+  sos.head.rlm = 0 ;                                               // fix SOR of SOS record
+  cur = lseek(fp->fd, fp->seg_base , SEEK_SET) ;
+// fprintf(stderr,"RSF_Switch DEBUG : original sos rewrite at %12.12x\n", cur) ;
+  nc = write(fp->fd, &sos, sizeof(start_of_segment)) ;             // rewrite start of active segment
+
+  RSF_File_lock(fp, 1) ;    // lock file
+  fp->seg_base = lseek(fp->fd, 0L, SEEK_END) ;
+  sparse_start = fp->seg_base ;
+  sparse_top = fp->seg_base + fp->seg_max ;
+  sparse_size = sparse_top - sparse_start ;
+  rl_sparse = sparse_size - sizeof(start_of_segment) ;         // end of sparse segment record length
+
+  // new sparse segment SOS    ( from RSF_New_empty_segment)
+  sos2.meta_dim = fp->meta_dim ;
+  for(i=0 ; i<8 ; i++) sos2.sig1[i] = sos.sig1[i] ;            // copy signature
+  RSF_64_to_32(sos2.seg, 0L) ;
+  RSF_64_to_32(sos2.sseg, sparse_size) ;
+  RSF_64_to_32(sos2.vdir, 0L) ;
+  RSF_64_to_32(sos2.vdirs, 0L) ;
+  sos2.head.rlm = 0xFFFF ;
+  sos2.tail.rlm = 0 ;
+  nc = write(fp->fd, &sos2, sizeof(start_of_segment)) ;
+  fp->next_write = fp->seg_base + sizeof(start_of_segment) ;
+  // new sparse segment EOS
+  // write end of segment (low part)
+  // write end of segment (high part) at the correct position (this will create the "hole" in the sparse file
+  // fill eos2 with proper values (sparse segment size, record length)
+  RSF_64_to_32(eos2.l.head.rl, rl_sparse) ;
+  memcpy(&(fp->eos1), &eos2, sizeof(end_of_segment)) ;            // copy eos into RSF_File structure
+  nc = write(fp->fd, &eos2.l, sizeof(end_of_segment_lo)) ;
+
+  eos2.h.meta_dim = fp->meta_dim ;
+  RSF_64_to_32(eos2.h.seg, 0L) ;
+  RSF_64_to_32(eos2.h.sseg, sparse_size) ;                      // segment length = sparse_size
+  RSF_64_to_32(eos2.h.vdir, 0L) ;
+  RSF_64_to_32(eos2.h.vdirs, 0L) ;
+  RSF_64_to_32(eos2.h.tail.rl, rl_sparse) ;
+  lseek(fp->fd, sparse_start + sparse_size - sizeof(end_of_segment_hi), SEEK_SET) ;
+  nc = write(fp->fd, &eos2.h, sizeof(end_of_segment_hi)) ;
+  fp->cur_pos = sparse_top ;
+
+  RSF_File_lock(fp, 0) ;    // unlock file
+
   return 1 ;
 }
 
@@ -1520,24 +1654,16 @@ int32_t RSF_Close_file(RSF_handle h){
   int32_t i, slot ;
   start_of_segment sos = SOS ;
   end_of_segment eos = EOS ;
-  off_t offset, offset_dir, offset_vdir, offset_eof, cur ;
-  uint64_t dir_size, vdir_size, sparse_size, rl_eos ;
+  off_t offset, offset_vdir, offset_eof, cur ;
+  uint64_t vdir_size, sparse_size, rl_eos ;
   ssize_t nc ;
   uint64_t sparse_start, sparse_top ;
   int32_t write0 = 1 ;
-//   uint64_t base0_seg_max = 0 ;
   directory_block *purge ;
 
   if( ! (slot = RSF_Valid_file(fp)) ) return 0 ;   // something not O.K. with fp
 
-//   base0_seg_max = RSF_32_to_64(fp->sos0.sseg) ;    // seg_max from first segment of file
-//   if(fp->seg_max > 0 && fp->seg_base ==0) {
-//   if(base0_seg_max > 0) {
-//     write0 = 0 ;  // first segment is a sparse segment
-//     fprintf(stderr,"RSF_Close_file DEBUG : segment 0 is sparse\n");
-//   }
   if( (fp->mode & RSF_RO) == RSF_RO) goto CLOSE ;  // file open in read only mode, nothing to rewrite
-// system("ls -l demo0.rsf");
 // fprintf(stderr,"before close position %ld, next_write = %ld \n", lseek(fp->fd, 0L , SEEK_CUR), fp->next_write);
 // fprintf(stderr,"RSF_Close_file DEBUG : beginning of close ");
   // discriminate between compact segment (exclusive write) and sparse segment (parallel write)
@@ -1550,8 +1676,6 @@ int32_t RSF_Close_file(RSF_handle h){
   //                  the EOS at end of file becomes the only good one
   //                  all other EOS/SOS records in file (if any) will be ignored
   //                  all DIR records except the last one will be ignored
-  sparse_start = fp->seg_base ;                                         // original start of segment
-  sparse_top = (fp->seg_max > 0) ? (fp->seg_base + fp->seg_max) : 0 ;   // original end of segment (0 if not sparse)
   if( (fp->mode & RSF_FUSE) == RSF_FUSE ) {
     lseek(fp->fd, fp->seg_base , SEEK_SET) ;                  // seek to start of this segment
     nc = write(fp->fd, &sos, sizeof(start_of_segment)) ;      // nullify original start_of_segment
@@ -1561,21 +1685,14 @@ int32_t RSF_Close_file(RSF_handle h){
     fp->dir_read = 0 ;                                        // all directory entries will be written
     fprintf(stderr,"RSF_Close_file DEBUG : fusing segments into one\n") ;
   }
-// fprintf(stderr," segmax = %ld, sparse_start = %ld, sparse_top = %ld, next write = %ld, segbase = %ld\n", 
-//         fp->seg_max, sparse_start, sparse_top, fp->next_write, fp->seg_base);
-offset_vdir = fp->next_write - fp->seg_base ;                    // vdir offset into segment
-vdir_size = RSF_Write_vdir(fp) ;                                 // write vdir,
-// offset_eof = offset_dir + vdir_size + sizeof(end_of_segment) ;   // offset_eof points to after eventual eos
+  offset_vdir = fp->next_write - fp->seg_base ;                    // vdir offset into segment
+  vdir_size = RSF_Write_vdir(fp) ;                                 // write vdir
+  if(vdir_size == 0) offset_vdir = 0 ;
 
-//   offset_dir = fp->next_write - fp->seg_base ;                // directory offset into segment
-//   offset_eof = offset_dir + RSF_Disk_dir_size(fp) + sizeof(end_of_segment) ;  // offset_eof points to after eos
 // fprintf(stderr,"RSF_Close_file DEBUG :, offset_dir = %lx, offset_eof = %lx\n", offset_dir, offset_eof) ;
 // fprintf(stderr,"offset_dir = %16lo, offset_eof = %16lo\n",offset_dir, offset_eof);
   fp->cur_pos = lseek(fp->fd, fp->next_write , SEEK_SET) ;  // reset position of write pointer
 // fprintf(stderr,"before write directory %ld\n", lseek(fp->fd, 0L , SEEK_CUR));
-// // //   dir_size = RSF_Write_directory(fp) ;             // write directory to file
-  offset_dir = 0 ;
-  dir_size = 0 ;
   offset_eof = fp->next_write - fp->seg_base  + sizeof(end_of_segment);
 // fprintf(stderr,"after write directory %ld\n", lseek(fp->fd, 0L , SEEK_CUR));
 
@@ -1598,8 +1715,9 @@ fprintf(stderr,"DEBUG: CLOSE: '%s' EOS, rt = %d, zr = %d, rl = %8.8x %8.8x, rlm 
 // fprintf(stderr,"RSF_Close_file DEBUG : middle of close, segmax = %ld, sparse_start = %ld, sparse_top = %ld\n",fp->seg_max, sparse_start, sparse_top);
 // system("ls -l demo0.rsf");
 
-  if(fp->seg_max > 0){
+  if(fp->seg_max > 0){                                // this was a sparse segment
     sparse_start = lseek(fp->fd, 0L, SEEK_CUR) ;
+    sparse_top = fp->seg_base + fp->seg_max ;
     sparse_size = sparse_top - sparse_start ;         // new sparse segment size, original end of sparse segment - after compact eos
 //     fprintf(stderr,"DEBUG: CLOSE: sparse_size = %lx %ld, offset_eof = %lx %ld\n", sparse_size, sparse_size, offset_eof, offset_eof) ;
 
@@ -1634,17 +1752,18 @@ fprintf(stderr,"DEBUG: CLOSE: '%s' EOS, rt = %d, zr = %d, rl = %8.8x %8.8x, rlm 
   cur = lseek(fp->fd, fp->seg_base , SEEK_SET) ;
   nc = write(fp->fd, &sos, sizeof(start_of_segment)) ;      // rewrite start of active segment
 // fprintf(stderr,"RSF_Close_file DEBUG : start_of_segment at %ld\n",fp->seg_base);
-//   if(fp->isnew == 0 && write0 == 1) {  // skip this for new files, fused files, and segment 0 sparse
+
   if(fp->isnew == 0) {  // skip this for new compact files, and fused files
-    RSF_File_lock(fp->fd, 1) ;
+    RSF_File_lock(fp, 1) ;
     lseek(fp->fd, offset = 0 , SEEK_SET) ;
     nc = read(fp->fd, &fp->sos0, sizeof(start_of_segment)) ;  // rewrite start of segment 0
+    // if a number of sparse segments are open, bump coount down by 1
     if(fp->sos0.head.rlm > 0) fp->sos0.head.rlm = fp->sos0.head.rlm -1 ;
 //     fprintf(stderr,"RSF_Close_file DEBUG : rewriting segment 0 header, rlm = %d\n", fp->sos0.head.rlm);
     lseek(fp->fd, offset = 0 , SEEK_SET) ;
     nc = write(fp->fd, &fp->sos0, sizeof(start_of_segment)) ;  // rewrite start of segment 0
     usleep(10000) ;
-    RSF_File_lock(fp->fd, 0) ;
+    RSF_File_lock(fp, 0) ;
   }
 //   fprintf(stderr,"DEBUG: CLOSE: EOF at %lx\n", lseek(fp->fd, 0L, SEEK_END)) ;
 
@@ -1660,7 +1779,7 @@ CLOSE :
     fp->dirblocks = purge ;          // next block
   }
   if(fp->vdir != NULL) free(fp->vdir) ;
-  if(fp != NULL) free(fp) ;   // free file control structure
+  free(fp) ;          // free file control structure
 
   return 1 ;
 }

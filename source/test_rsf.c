@@ -128,6 +128,12 @@ int the_test(int argc, char **argv){
 //   meta[0] = 127 | (1 << 16) ;
   for(i = 1 ; i < META_SIZE ; i++) meta[i] = 0xFFFFFF0 + i ;
   for(i = 0 ; i < NREC ; i++){
+    if(my_rank == 0){
+      if(i == NREC/2){
+        fprintf(stderr,"DEBUG: switching to a new segment\n") ;
+        RSF_Switch_sparse_segment(h1) ;
+      }
+    }
     meta[0] = (( (i & 0x3) + 8) & 0xFF) | (1 << ((i & 0x3) + 8)) ;
     if(i >= 8) meta[0] = RT_XDAT | (1 << (RT_XDAT + 8)) ;
     meta[1] = my_rank ;
