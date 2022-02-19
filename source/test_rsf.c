@@ -131,7 +131,7 @@ int the_test(int argc, char **argv){
     if(my_rank == 0){
       if(i == NREC/2){
         fprintf(stderr,"DEBUG: switching to a new segment\n") ;
-        RSF_Switch_sparse_segment(h1) ;
+        RSF_Switch_sparse_segment(h1, 0L) ;
       }
     }
     meta[0] = (( (i & 0x3) + 8) & 0xFF) | (1 << ((i & 0x3) + 8)) ;

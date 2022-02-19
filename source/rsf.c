@@ -723,7 +723,7 @@ fprintf(stderr,"RSF_Adjust_data_record DEBUG : data_size = %ld\n", data_size) ;
 // TODO : use macros to manage metadata lengths
 int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *data, size_t data_size){
   RSF_File *fp = (RSF_File *) h.p ;
-  uint64_t record_size, total_size, needed ;
+  uint64_t record_size, total_size, needed, extra ;
   int64_t slot ;
   start_of_record sor = SOR ;      // start of data record
   end_of_record   eor = EOR ;      // end of data record
@@ -752,6 +752,11 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
 //        record_size,sizeof(start_of_record),fp->meta_dim * sizeof(uint32_t), data_size, sizeof(end_of_record)) ;
   // write record if enough room left in segment (always O.K. if compact segment)
   if(fp->seg_max > 0){                                                 // write into a sparse segment
+    extra  = record_size +                         // this record
+             sizeof(end_of_segment) +              // end of fixed segment
+             sizeof(start_of_segment) +            // new sparse segment (SOS + EOS)
+             sizeof(end_of_segment) +
+             4096 ;                                // arbitrary overhead
     needed = fp->next_write + 
              record_size +                                        // record size
              fp->vdir_size +                                      // directory current record size
@@ -759,8 +764,10 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
              sizeof(end_of_segment) +                             // end of compact segment
              sizeof(start_of_segment) + sizeof(end_of_segment) +  // sparse segment at end (sos + eos)
              4096 ;                                               // arbitrary overhead
+//     needed = fp->next_write + extra ;              // space for this record and segment overhead
     if( needed > fp->seg_max + fp->seg_base) {
       fprintf(stderr,"RSF_Put_data ERROR : sparse segment OVERFLOW\n");
+      // switch to a new segment
       goto ERROR ; // not enough room in segment to accomodate record
     }
   }
@@ -930,7 +937,7 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
   char name[] ;
   } *fmeta ;
   uint32_t *dir_meta, *file_meta ;
-  uint64_t needed ;
+  uint64_t needed, extra ;
   uint8_t copy_buf[1024*1024] ;
 
   dir_meta = NULL ; file_meta = NULL ; fmeta = NULL ;
@@ -977,16 +984,20 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
                 sizeof(end_of_record) ;
 
   if(fp->seg_max > 0){                             // write into a sparse segment not allowed for now
-    needed = fp->next_write +
-             record_size +                         // this record
-             fp->vdir_size +                       // current directory size
-             sizeof(vdir_entry) +                  // space for this entry
-             (meta_size + extra_meta) * sizeof(uint32_t) +
+    extra  = record_size +                         // this record
              sizeof(end_of_segment) +              // end of fixed segment
-             sizeof(start_of_segment) + sizeof(end_of_segment) +  // new sparse segment
+             sizeof(start_of_segment) +            // new sparse segment (SOS + EOS)
+             sizeof(end_of_segment) +
              4096 ;                                // arbitrary overhead
+    needed = fp->next_write +
+             fp->vdir_size +                       // current directory size
+             sizeof(vdir_entry) +                  // space for this entry in directory
+             (meta_size + extra_meta) * sizeof(uint32_t) +
+             extra ;                               // for this record and segment overhead
+//     needed = fp->next_write + extra ;              // for this record and segment overhead
     if(needed > fp->seg_max + fp->seg_base) {
       fprintf(stderr,"RSF_Put_file ERROR : sparse segment OVERFLOW\n") ;
+      // switch to a new segment
       goto ERROR ;
     }
   }
@@ -1535,7 +1546,7 @@ int32_t RSF_Close_compact_segment(RSF_handle h){
 // write SOS and split EOS for new segment
 // unlock file
 // switch fp control fields to new segment
-int32_t RSF_Switch_sparse_segment(RSF_handle h){
+int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size){
   RSF_File *fp = (RSF_File *) h.p ;
   int i, slot ;
   off_t offset_vdir, offset_eof, cur ;
@@ -1612,6 +1623,7 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h){
   RSF_File_lock(fp, 1) ;    // lock file
   fp->seg_base = lseek(fp->fd, 0L, SEEK_END) ;
   sparse_start = fp->seg_base ;
+  fp->seg_max = (fp->seg_max > min_size) ? fp->seg_max : min_size ;  // minimum segment size
   sparse_top = fp->seg_base + fp->seg_max ;
   sparse_size = sparse_top - sparse_start ;
   rl_sparse = sparse_size - sizeof(start_of_segment) ;         // end of sparse segment record length
