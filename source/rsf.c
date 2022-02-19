@@ -1525,7 +1525,7 @@ int32_t RSF_Close_compact_segment(RSF_handle h){
 }
 
 // close a RSF sparse file segment, allocate a new one of the same size, switch file to new segment
-// write directory record
+// write directory record (no longer needed, as the new segment will get the directory)
 // SOS of sparse segment must be rewritten (segment becomes compact)
 // EOS of compact segment must be written
 // SOS for the sparse segment that gets the remaining space must be written
@@ -1550,13 +1550,15 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h){
   if( (fp->mode & RSF_RO) == RSF_RO) return 1 ;    // file open in read only mode, nothing to do
 
   if(fp->seg_max == 0) return 1 ; // not a sparse segment
+  offset_vdir = 0 ;
+  vdir_size = 0 ;
 
   // write directory, but move dir_read to avoid writing same record information again
-  offset_vdir = fp->next_write - fp->seg_base ;                    // vdir offset into segment
-// fprintf(stderr,"RSF_Switch DEBUG : offset_vdir = %12.12lx (%12.12x)\n", offset_vdir, fp->next_write) ;
-  vdir_size = RSF_Write_vdir(fp) ;                                 // write vdir
-  if(vdir_size == 0) offset_vdir = 0 ;                             // no directory
-  fp->dir_read = fp->vdir_used ;                                   // keep current directory info
+  // logic removed, the new segment will get the directory
+//   offset_vdir = fp->next_write - fp->seg_base ;                    // vdir offset into segment
+//   vdir_size = RSF_Write_vdir(fp) ;                                 // write vdir
+//   if(vdir_size == 0) offset_vdir = 0 ;                             // no directory
+//   fp->dir_read = fp->vdir_used ;                                   // keep current directory info
   fp->cur_pos = lseek(fp->fd, fp->next_write , SEEK_SET) ;         // set position of write pointer
 
   // write compact segment EOS
