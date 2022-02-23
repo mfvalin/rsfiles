@@ -92,7 +92,7 @@ int the_test(int argc, char **argv){
 
 #if defined(TEST7)
 
-#include <rsf.h>
+#include <rsf_int.h>
 #include <mpi.h>
 #define NDATA 3000
 #define NREC 10
@@ -110,7 +110,7 @@ int the_test(int argc, char **argv){
   int32_t data[NDATA+NREC] ;
   size_t data_size ;
   int i, j, ndata ;
-  int64_t slot2 ;
+  int64_t slot2, free_space1, free_space2 ;
   int32_t meta0 ;
   uint32_t *metaf, fmeta_size ;
   int64_t put_slot[NREC] ;
@@ -128,10 +128,19 @@ int the_test(int argc, char **argv){
 //   meta[0] = 127 | (1 << 16) ;
   for(i = 1 ; i < META_SIZE ; i++) meta[i] = 0xFFFFFF0 + i ;
   for(i = 0 ; i < NREC ; i++){
-    if(my_rank == 0){
+    if(my_rank == 0){           // first PE
       if(i == NREC/2){
-        fprintf(stderr,"DEBUG: switching to a new segment\n") ;
+        free_space1 = RSF_Available_space(h1) ;
         RSF_Switch_sparse_segment(h1, 0L) ;
+        free_space2 = RSF_Available_space(h1) ;
+        fprintf(stderr,"DEBUG: switching to a new segment, free space increased from %ld to %ld\n", free_space1, free_space2) ;
+      }
+    }
+    if(my_rank == nprocs -1){    // last PE
+      if(i == NREC/2){
+        free_space1 = RSF_Available_space(h1) ;
+        RSF_Put_empty_record(h1, free_space1-32) ;
+        fprintf(stderr,"DEBUG: writing empty record of size %ld\n", free_space1) ;
       }
     }
     meta[0] = (( (i & 0x3) + 8) & 0xFF) | (1 << ((i & 0x3) + 8)) ;
@@ -161,12 +170,16 @@ int the_test(int argc, char **argv){
         fprintf(stderr,"DEBUG: adding file '%s', slot = %lx\n", argv[2], file_slot[i]) ;
       }
       meta[0] = meta0 ;
+      RSF_Put_empty_record(h1, 1000l) ;
+      fprintf(stderr,"DEBUG: writing empty record of size %ld\n", free_space1) ;
     }
     if(i == 5) {
       if(argc > 2) {
         fprintf(stderr,"DEBUG: retrieving file '%s', slot = %lx\n", argv[2], file_slot[3]) ;
         slot2 = RSF_Get_file(h1, file_slot[3], "tagada.txt", &metaf, &fmeta_size) ;
         fprintf(stderr,"DEBUG: slot read/written = %lx/%lx,  %s\n",file_slot[3], slot2, (file_slot[3] == slot2) ? "SUCCESS" : "ERROR") ;
+        RSF_Put_empty_record(h1, 2000l) ;
+        fprintf(stderr,"DEBUG: writing empty record of size %ld\n", free_space1) ;
       }
     }
   }
@@ -178,8 +191,12 @@ int the_test(int argc, char **argv){
     snprintf(command, sizeof(command), "cp %s %s.bak", argv[1], argv[1]) ;
     system(command) ;
     fprintf(stderr,"====== Fusing segments (last process) ======\n") ;
+    free_space1 = RSF_Available_space(h1) ;
+    fprintf(stderr,"free space before open = %16.16lx\n", free_space1);
     h1 = RSF_Open_file(argv[1], RSF_RW + RSF_FUSE, &meta_dim, "DeMo", NULL);
 //     h1 = RSF_Open_file(argv[1], RSF_RO , &meta_dim, "DeMo", NULL);
+    free_space1 = RSF_Available_space(h1) ;
+    fprintf(stderr,"free space = %16.16lx\n", free_space1);
     RSF_Dump_vdir(h1) ;
     RSF_Close_file(h1) ;
   }

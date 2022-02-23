@@ -17,6 +17,8 @@
 
 #include <rsf.h>
 
+int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
+
 // Random Segmented Files (RSF) internal (private) definitions and structures
 //
 //           file structure (N segments)
@@ -102,6 +104,9 @@
 #define RL_EOSL sizeof(end_of_segment_lo)
 #define RL_EOSH sizeof(end_of_segment_hi)
 #define RL_EOS (RL_EOSL + RL_EOSH)
+
+// align top of sparse segments to 1MB ( 2**20 )
+#define SPARSE_BLOCK_ALIGN 20
 
 // convert a pair of unsigned 32 bit elements into an unsigned 64 bit element
 static inline uint64_t RSF_32_to_64(uint32_t u32[2]){

@@ -386,6 +386,12 @@ interface
   uint32_t RSF_Record_meta_size(RSF_record *r) ;               // size of metadata in record allocated by RSF_New_record
 #endif
 
+#if defined(IN_FORTRAN_CODE)
+#else
+int64_t RSF_Used_space(RSF_handle h) ;
+int64_t RSF_Available_space(RSF_handle h) ;
+uint64_t RSF_Put_empty_record(RSF_handle h, size_t record_size) ;
+#endif
 
 #if defined(IN_FORTRAN_CODE)
 end interface
