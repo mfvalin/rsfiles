@@ -22,19 +22,19 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
 // Random Segmented Files (RSF) internal (private) definitions and structures
 //
 //           file structure (N segments)
-// +-----------+-----------+                  +-----------+
-// | segment 1 | segment 2 |..................| segment N |
-// +-----------+-----------+                  +-----------+
+// +-----------+-----------+                  +-------------+
+// | segment 0 | segment 1 |..................| segment N-1 |
+// +-----------+-----------+                  +-------------+
 //
 //           segment structure (compact segment)
 //           data and directory record(s) may be absent (empty segment)
 // +-----+------+               +------+-----------+------+------+
-// | SOS | data |------data-----| data | directory | EOSl | EOSh |
+// | SOS | data |-- more data --| data | directory | EOSl | EOSh |
 // +-----+------+               +------+-----------+------+------+
 //           segment structure (sparse segment)
 //           data and directory record(s) may be absent (empty segment)
 // +-----+------+               +------+-----------+------+               +------+
-// | SOS | data |------data-----| data | directory | EOSl |......gap......| EOSh |
+// | SOS | data |-- more data --| data | directory | EOSl |......gap......| EOSh |
 // +-----+------+               +------+-----------+------+               +------+
 // SOS       start of data record
 // data      data record
@@ -43,13 +43,16 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
 // EOSh      high part of end of segment record
 // gap       unpopulated zone in file address space (sparse file)
 
-// structure of a record (array of 32 bit items)
-//   ZR    RLM    RT   RL[0]   RL[1]   LMETA                                       RL[0]   RL[1]   ZR    RLM    RT
+// structure of a record
+//   ZR    RLM    RT   RL[0]   RL[1]   LMETA <------ record specific part -------> RL[0]   RL[1]   ZR    RLM    RT
+// +----+-------+----+-------+-------+-------+-----------------------------------+-------+-------+----+-------+----+
+// |    |       |    |       |       |       |            PAYLOAD                |       |       |    |       |    |
+// +----+-------+----+-------+-------+-------+-----------------------------------+-------+-------+----+-------+----+
 // +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
-// |    |       |    |       |       | LMETA | METADATA |       DATA             |       |       |    |       |    |
+// |    |       |    |       |       |       |   META   |       DATA             |       |       |    |       |    |
 // +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
 // <---------- start of record (SOR) -------->                                   <------- end of record (EOR) ----->
-//   8     16     8     32      32    16/8/8   RLM x 32                             32      32      8    16     8   (# of bits)
+//   8     16     8     32      32    16/8/8   RLM x 32                              32      32      8    16     8   (# of bits)
 // <--------------------------------------------  RL[0] * 2**32 + RL[1] bytes  ------------------------------------>
 // ZR    : marker (0xFE for SOR, 0xFF for EOR)
 // RLM   : length of metadata in 32 bit units (data record)
@@ -57,27 +60,45 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
 //         (secondary metadata not in directory)
 //       : open-for-write flag (Start of segment record) (0 if not open for write)
 //       : undefined (End of segment or other record)
-//LMETA  : record local metadata, RLMD, UBC, DUL [] )
+// LMETA : record local metadata, RLMD, UBC, DUL [] )
 //         RLMD (16 bits) directory metadata length for this record
 //         UBC  ( 8 bits) Unused Bit Count (RL is always a multiple of 4 Bytes)
 //         DUL  ( 8 bits) Data Unit Length (1/2/4/8 bytes) for Endianness adjustment
 // RT    : record type (normally 0 -> 0x80)
 // RL    : record length = RL[0] * 2**32 + RL[1] bytes (ALWAYS a multiple of 4 bytes)
+// META  : array of 32 bit items (data record metadata)
+// DATA  : array of 8/16/32/64 bit items
 //
-// for endianness purposes, these files are mostly composed of 32 bit items, 
-//   but 8/16/32/64 data items may be found in these files (identified as such)
-// 64 bit quantities may be represented with a pair of 32 bit values, Most Significant Part first
-// record/segment lengths are always multiples of 4 bytes
-// the first segment of a file MUST be a compact segment (CANNOT be a sparse segment)
-// a segment can be opened for write into ONCE, and cannot be reopened to append data into it
-// a sparse segment becomes a compact segment when closed (a dummy sparse segment takes the remaining space)
+// some part of the PAYLOAD may be "virtual" 
+// (sparse records like a sparse segment "split" end of segment record)
+//
+// for endianness management purposes, these files are mostly composed of 32 bit items, 
+//   but 8/16/32/64 data items may be found in the payload
+// some 64 bit quantities in control records are represented as a pair of 32 bit values, Most Significant Part first
+//
+// record lengths are always multiples of 4 bytes
+//
+// the first segment (0) of a file MUST be a compact segment (CANNOT be a sparse segment)
+//
+// a segment can be opened for write only ONCE, and cannot be reopened to append data into it (a new segment must be created)
+//
+// a sparse segment becomes a compact segment when closed (a dummy sparse segment takes up the remaining space)
+//
 // the concatenation of 2 RSF files is a valid RSF file
+//
 // RSF files may be used as containers for other files
-// a "FUSE" operation can consolidate all directories from a file into a single directory
+//
+// a "FUSE" operation can be used to consolidate all directories from a file into a single directory
 //   to make future access more efficient
-// while records are being added to a file (always in NEW segments) the "old" segments are readable
-// sparse segment may be written in parallel by multiple processes, if the underlying
+//
+// while records are being added to a file (always in NEW segments) the "old" segments are still readable
+//
+// multiple sparse segments may be written into in parallel by multiple processes, if the underlying
 //   filesystem supports advisory locks.
+//
+// the top of a sparse segment is aligned to a (power of 2 - 1) address for performance reasons
+// when created, the bottom of a sparse segment is normally aligned to a power of 2 block boundary
+// (exception : if the first useful segment is sparse, it goes on top of the dummy compact segment 0)
 
 // main record type rt values
 // 0     : INVALID
@@ -107,6 +128,7 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
 
 // align top of sparse segments to 1MB ( 2**20 )
 #define SPARSE_BLOCK_ALIGN 20
+#define ARBITRARY_OVERHEAD 4096
 
 // convert a pair of unsigned 32 bit elements into an unsigned 64 bit element
 static inline uint64_t RSF_32_to_64(uint32_t u32[2]){
@@ -375,4 +397,13 @@ static inline uint32_t RSF_Unlock(RSF_File *fp, uint32_t id){
   uint32_t old_id = fp->lock ;
   if(old_id == id) fp->lock = 0 ;
   return old_id == id ;            // 1 if successful, 0 if locked by some other code
+}
+
+// round sizes up to a multiple of 4
+static inline int64_t RSF_Round_size(size_t data_size){
+  if(data_size & 0x3l) {    // not a multiple of 4
+    data_size |= 0x3l ;     // round up to a multiple of 4
+    data_size++ ;
+  }
+  return data_size ;
 }

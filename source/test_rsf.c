@@ -116,6 +116,7 @@ int the_test(int argc, char **argv){
   int64_t put_slot[NREC] ;
   int64_t file_slot[NREC] ;
   char command[1024] ;
+  int status ;
 
   MPI_Init(&argc, &argv) ;
   MPI_Comm_rank(MPI_COMM_WORLD, &my_rank) ;
@@ -138,9 +139,9 @@ int the_test(int argc, char **argv){
     }
     if(my_rank == nprocs -1){    // last PE
       if(i == NREC/2){
-        free_space1 = RSF_Available_space(h1) ;
-        RSF_Put_empty_record(h1, free_space1-32) ;
-        fprintf(stderr,"DEBUG: writing empty record of size %ld\n", free_space1) ;
+        free_space1 = RSF_Available_space(h1) - 32 ;
+        status = RSF_Put_empty_record(h1, free_space1) ;
+        fprintf(stderr,"DEBUG: %s empty record of size %ld\n", status ? "wrote" : "failed to write", free_space1) ;
       }
     }
     meta[0] = (( (i & 0x3) + 8) & 0xFF) | (1 << ((i & 0x3) + 8)) ;
@@ -170,16 +171,16 @@ int the_test(int argc, char **argv){
         fprintf(stderr,"DEBUG: adding file '%s', slot = %lx\n", argv[2], file_slot[i]) ;
       }
       meta[0] = meta0 ;
-      RSF_Put_empty_record(h1, 1000l) ;
-      fprintf(stderr,"DEBUG: writing empty record of size %ld\n", free_space1) ;
+      status = RSF_Put_empty_record(h1, 1000l) ;
+      fprintf(stderr,"DEBUG: %s empty record of size %ld\n", status ? "wrote" : "failed to write", 1000l) ;
     }
     if(i == 5) {
       if(argc > 2) {
         fprintf(stderr,"DEBUG: retrieving file '%s', slot = %lx\n", argv[2], file_slot[3]) ;
         slot2 = RSF_Get_file(h1, file_slot[3], "tagada.txt", &metaf, &fmeta_size) ;
         fprintf(stderr,"DEBUG: slot read/written = %lx/%lx,  %s\n",file_slot[3], slot2, (file_slot[3] == slot2) ? "SUCCESS" : "ERROR") ;
-        RSF_Put_empty_record(h1, 2000l) ;
-        fprintf(stderr,"DEBUG: writing empty record of size %ld\n", free_space1) ;
+        status = RSF_Put_empty_record(h1, 2000l) ;
+        fprintf(stderr,"DEBUG: %s empty record of size %ld\n", status ? "wrote" : "failed to write", 2000l) ;
       }
     }
   }

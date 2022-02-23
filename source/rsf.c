@@ -744,8 +744,8 @@ int64_t RSF_Available_space(RSF_handle h){
          fp->vdir_size +                                      // directory current record size
          sizeof(end_of_segment) +                             // end of compact segment
          sizeof(start_of_segment) + sizeof(end_of_segment) +  // sparse segment at end (sos + eos)
-         4096 ;                                               // arbitrary overhead
-  return fp->seg_max - used - sizeof(start_of_record) -sizeof(end_of_record) ;
+         ARBITRARY_OVERHEAD ;                                 // arbitrary overhead
+  return (fp->seg_max - used - sizeof(start_of_record) - sizeof(end_of_record)) ;
 }
 
 // write a null record, no metadata, sparse data
@@ -761,7 +761,7 @@ uint64_t RSF_Put_empty_record(RSF_handle h, size_t record_size){
 
   if( ! RSF_Valid_file(fp) ) return 0 ;
 
-  needed = record_size + sizeof(start_of_record) + sizeof(end_of_record) ;
+  needed = record_size ;
   if(fp->seg_max > 0){
     free_space = RSF_Available_space(h) ;
     fprintf(stderr,"RSF_Put_empty_record DEBUG : free = %ld, needed = %ld\n", free_space, needed );
@@ -770,6 +770,7 @@ uint64_t RSF_Put_empty_record(RSF_handle h, size_t record_size){
       return 0 ;
     }
   }
+  needed = needed + sizeof(start_of_record) + sizeof(end_of_record) ;
   sor.rt = RT_NULL ;
   RSF_64_to_32(sor.rl, needed) ;
   eor.rt = RT_NULL ;
@@ -780,6 +781,15 @@ uint64_t RSF_Put_empty_record(RSF_handle h, size_t record_size){
   write(fp->fd, &eor, sizeof(end_of_record)) ;
   fp->next_write += needed ;
   return(needed) ;
+}
+
+int64_t RSF_Record_size(uint32_t ml, size_t data_size){
+  int64_t record_size ;
+
+  record_size = REC_ML(ml) ;
+  record_size *= sizeof(uint32_t) ;
+  record_size += RSF_Round_size(data_size) ;
+  return record_size ;
 }
 
 // write data record to file
@@ -825,18 +835,15 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
 //        record_size,sizeof(start_of_record),fp->meta_dim * sizeof(uint32_t), data_size, sizeof(end_of_record)) ;
   // write record if enough room left in segment (always O.K. if compact segment)
   if(fp->seg_max > 0){                                                 // write into a sparse segment
-    extra  = record_size +                         // this record
+    extra  = RSF_Round_size(record_size) +         // this record
              sizeof(end_of_segment) +              // end of fixed segment
              sizeof(start_of_segment) +            // new sparse segment (SOS + EOS)
              sizeof(end_of_segment) +
-             4096 ;                                // arbitrary overhead
+             ARBITRARY_OVERHEAD ;                  // arbitrary overhead
     needed = fp->next_write +
-             record_size +                                        // record size
-             fp->vdir_size +                                      // directory current record size
-             sizeof(vdir_entry) + meta_size * sizeof(uint32_t) +  // space for this entry
-             sizeof(end_of_segment) +                             // end of compact segment
-             sizeof(start_of_segment) + sizeof(end_of_segment) +  // sparse segment at end (sos + eos)
-             4096 ;                                               // arbitrary overhead
+             extra +
+             fp->vdir_size +                                      // current directory record size
+             sizeof(vdir_entry) + meta_size * sizeof(uint32_t) ;  // space for this entry
     if( needed > fp->seg_max + fp->seg_base) {
       fprintf(stderr,"RSF_Put_data ERROR : sparse segment OVERFLOW, switching to new segment\n");
       // switch to a new segment
@@ -882,6 +889,7 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
     sor.rlmd = vdir_meta ;
     sor.dul = 4 ;
     sor.ubc = 0 ;
+    record_size = RSF_Round_size(record_size) ;
     RSF_64_to_32(sor.rl, record_size) ;
     nc = write(fp->fd, &sor, sizeof(start_of_record)) ;             // write start of record
     nc = write(fp->fd, meta, meta_size * sizeof(uint32_t)) ;        // write metadata
@@ -1061,7 +1069,7 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
              sizeof(end_of_segment) +              // end of fixed segment
              sizeof(start_of_segment) +            // new sparse segment (SOS + EOS)
              sizeof(end_of_segment) +
-             4096 ;                                // arbitrary overhead
+             ARBITRARY_OVERHEAD ;                  // arbitrary overhead
     needed = fp->next_write +
              fp->vdir_size +                       // current directory size
              sizeof(vdir_entry) +                  // space for this entry in directory
@@ -1070,7 +1078,8 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
     if(needed > fp->seg_max + fp->seg_base) {
       fprintf(stderr,"RSF_Put_file ERROR : sparse segment OVERFLOW\n") ;
       // switch to a new segment
-      goto ERROR ;
+      RSF_Switch_sparse_segment(h, extra) ;
+//       goto ERROR ;
     }
   }
 
