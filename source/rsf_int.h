@@ -129,6 +129,7 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
 // align top of sparse segments to 1MB ( 2**20 )
 #define SPARSE_BLOCK_ALIGN 20
 #define ARBITRARY_OVERHEAD 4096
+#define NEW_SEGMENT_OVERHEAD (ARBITRARY_OVERHEAD + 2 * sizeof(start_of_segment) + sizeof(end_of_segment))
 
 // convert a pair of unsigned 32 bit elements into an unsigned 64 bit element
 static inline uint64_t RSF_32_to_64(uint32_t u32[2]){
@@ -200,7 +201,7 @@ typedef struct{           // start of segment record, matched by a corresponding
   start_of_record head ;  // rt=3
   unsigned char sig1[8] ; // RSF marker + application marker ('RSF0cccc) where cccc is 4 character application signature
   uint32_t sign ;         // 0xDEADBEEF hex signature for start_of_segment
-  uint32_t meta_dim ;     // directory entry metadata size (uint32_t units)
+  uint32_t meta_dim ;     // metadata sizes (uint32_t units)
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes) (excluding EOS record)
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of segment size (bytes) (including EOS record)
   uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
@@ -229,7 +230,7 @@ typedef struct{           // head part of end_of_segment record (low address in 
 
 typedef struct{           // tail part of end_of_segment record (high address in file)
   uint32_t sign ;         // 0xCAFEFADE hex signature for end_of_segment_hi
-  uint32_t meta_dim ;     // directory entry metadata size (uint32_t units)
+  uint32_t meta_dim ;     // metadata sizes (uint32_t units)
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes)
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of sparse segment size (bytes) (0 if not sparse file)
   uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
@@ -329,7 +330,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   off_t    size ;                // file size
   off_t    next_write ;          // file offset from beginning of file for next write operation ( -1 if not defined)
   off_t    cur_pos ;             // current file position from beginning of file ( -1 if not defined)
-  uint32_t meta_dim ;            // directory entry metadata size (uint32_t units)
+//   uint32_t meta_dim ;            // directory entry metadata size (uint32_t units)
   uint32_t rec_class ;           // record class being writen (default : data class 1) (rightmost 24 bits only)
   uint32_t class_mask ;          // record class mask (for scan/read/...) (by default all ones)
   uint32_t dir_read ;            // number of entries read from file directory 
@@ -338,6 +339,8 @@ struct RSF_File{                 // internal (in memory) structure for access to
   int32_t  slot ;                // file slot number of file (-1 if invalid)
   uint32_t nwritten ;            // number of records written (useful when closing after write)
   int32_t  lock ;                // used to lock the file for thread safety
+  uint16_t rec_meta ;            // record metadata size (uint32_t units)
+  uint16_t dir_meta ;            // directory entry metadata size (uint32_t units)
   uint16_t mode ;                // file mode (RO/RW/AP/...)
   uint8_t isnew ;                // new segment indicator
   uint8_t last_op ;              // last operation (1 = read) (2 = write) (0 = unknown/invalid)
@@ -376,6 +379,8 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
   fp->slot       = -1 ;
 //   fp->nwritten   =  0 ;
 //   fp->lock       =  0 ;
+//   fp->rec_meta       =  0 ;
+//   fp->dir_meta       =  0 ;
 //   fp->mode       =  0 ;
 //   fp->isnew      =  0 ;
 //   fp->last_op    =  0 ;

@@ -161,7 +161,7 @@ int the_test(int argc, char **argv){
       data[j] = j+i ;
     }
     // metadata in vdir shorter by 1 than metadata in record
-    put_slot[i] = RSF_Put_data(h1, meta, META_SIZE + ((META_SIZE-1) << 16), data, data_size) ;
+    put_slot[i] = RSF_Put_data(h1, meta, META_SIZE + ((META_SIZE-1) << 16), data, data_size, DT_32) ;
     // fprintf(stderr,"PUT %p\n",h1.p);
     if(i == 3) {
       meta0 = meta[0] ;

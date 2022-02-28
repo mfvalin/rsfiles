@@ -554,11 +554,9 @@ int32_t RSF_Valid_record(RSF_record *r){
   int64_t rsz ;
   if( r->sor != (void *) r->d )                                             return 1 ; // sor is wrong
   if( (r->sor + sizeof(start_of_record)) != (void *) r->meta)               return 2 ; // meta - sor wrong
-  if( (r->data - (void *) r->meta) != sizeof(int32_t) * r->meta_size )      return 3 ; // meta_size inconsistent
-  rsz = (r->rsz >= 0) ? r->rsz : -(r->rsz)  ;   // use absolute value
-// printf("max_data = %ld, rsz = %ld, sor = %p, meta = %p, data = %p, eor max = %p\n",r->max_data,rsz,r->sor,r->meta,r->data,r->eor) ;
-// printf("&r->d[r->max_data] = %p, eor = %p\n",(void *)&r->d[r->max_data], ( p + rsz - sizeof(end_of_record) ));
-  if( (void *)&r->d[r->max_data] > ( p + rsz - sizeof(end_of_record) ) )    return 4 ; // data goes beyond EOR
+  if( (r->data - (void *) r->meta) != sizeof(int32_t) * r->rec_meta )      return 3 ; // meta_size inconsistent
+  rsz = (r->rsz >= 0) ? r->rsz : -(r->rsz)  ;   // use absolute value of rsz
+  if( (void *)&r->d[r->max_data] > ( p + rsz - sizeof(end_of_record) ) )    return 4 ; // data would go beyond EOR
   return 0 ;
 }
 
@@ -574,19 +572,25 @@ int32_t RSF_Valid_record(RSF_record *r){
 // this record is reusable as long as the allocated size can accomodate max_data data bytes of payload
 // this is why the allocated size is kept in the struct
 // if the szt field in the struct is negative, the memory was not allocated by RSF_New_record
-RSF_record *RSF_New_record(RSF_handle h, int32_t max_meta, size_t max_data, void *t, int64_t szt){
+RSF_record *RSF_New_record(RSF_handle h, int32_t meta_size, size_t max_data, void *t, int64_t szt){
   RSF_File *fp = (RSF_File *) h.p ;
   size_t record_size ;
   RSF_record *r ;
   void *p ;
   start_of_record *sor ;
   end_of_record   *eor ;
+  int32_t dir_meta, rec_meta ;
 
   if( ! RSF_Valid_file(fp) ) return NULL ;
   // calculate space needed for the requested "record"
-  if(max_meta < fp->meta_dim) max_meta = fp->meta_dim ;
+  dir_meta = DIR_ML(meta_size) ;
+  rec_meta = REC_ML(meta_size) ;
+  if(rec_meta < fp->meta_dim) rec_meta = fp->meta_dim ;
+  if(dir_meta < fp->meta_dim) dir_meta = fp->meta_dim ;
+  if(dir_meta > rec_meta)     dir_meta = rec_meta ;
+
   record_size = sizeof(start_of_record) +               // start of record marker
-                sizeof(uint32_t) * max_meta +           // metadata size in bytes
+                sizeof(uint32_t) * rec_meta +           // metadata size in bytes
                 max_data +                              // maximum data payload size
                 sizeof(end_of_record) ;                 // end of record marker
 
@@ -596,18 +600,18 @@ RSF_record *RSF_New_record(RSF_handle h, int32_t max_meta, size_t max_data, void
     r = (RSF_record *) p ;                              // pointer to record structure
     if(szt == 0) {                                      // passing a previously allocated record
       if( RSF_Valid_record(r) != 0 ) return NULL ;      // inconsistent info in structure
-      szt = (r->rsz >= 0) ? r->rsz : -(r->rsz) ;        // get memory size from existing record
+      szt = (r->rsz >= 0) ? r->rsz : -(r->rsz) ;        // get space size from existing record
     }else{
-      if(szt < 0) return NULL ;                         // invalid size for caller supplied space
-      r->rsz = -szt ;                                   // caller allocated space, szt stored as negative value
+      if(szt < 0) return NULL ;                         // szt MUST be positive for caller supplied space
+      r->rsz = -szt ;                                   // caller allocated space, szt stored as a negative value
     }
-    if(szt < record_size) return NULL ;                 // not enough space
+    if(szt < record_size) return NULL ;                 // not enough space to build record
 
   }else{                                                // create a new record
 
     p = malloc( record_size + sizeof(RSF_record) ) ;    // allocated record + overhead
-    r = (RSF_record *) p ;                              // pointer to record structure
     if(p == NULL) return NULL ;                         // malloc failed 
+    r = (RSF_record *) p ;                              // pointer to record structure
     r->rsz = record_size + sizeof(RSF_record) ;         // allocated memory size (positive, as it is allocated here)
 
   }  // if(t != NULL)
@@ -616,21 +620,41 @@ RSF_record *RSF_New_record(RSF_handle h, int32_t max_meta, size_t max_data, void
 
   sor = (start_of_record *) p ;
   r->sor  = sor ;
-  sor->zr = ZR_SOR ; sor->rt = RT_DATA ; sor->rlm = max_meta ; RSF_64_to_32(sor->rl, record_size) ; // provisional sor, assuming full record
+  sor->zr = ZR_SOR ; sor->rt = RT_DATA ; sor->rlm = rec_meta ; sor->rlmd = dir_meta ;
+  RSF_64_to_32(sor->rl, record_size) ; // provisional sor, assuming full record
 
   eor = (end_of_record *) (p + record_size - sizeof(end_of_record)) ;
   r->eor  = eor ;
-  eor->zr = ZR_EOR ; eor->rt = RT_DATA ; eor->rlm = max_meta ; RSF_64_to_32(eor->rl, record_size) ; // provisional eor, assuming full record
+  eor->zr = ZR_EOR ; eor->rt = RT_DATA ; eor->rlm = rec_meta ;
+  RSF_64_to_32(eor->rl, record_size) ; // provisional eor, assuming full record
 
-  r->meta_size = max_meta ;                          // metadata size in 32 bit units (metadata filling is not tracked)
+  r->rec_meta = rec_meta ;       // metadata sizes in 32 bit units (metadata filling is not tracked)
+  r->dir_meta = dir_meta ;
+  r->data_elem = 0 ;                                 // unspecified data element length
   r->meta = (uint32_t *) (p + sizeof(start_of_record)) ;                                                // points to metadata
-  bzero(r->meta, sizeof(uint32_t) * max_meta) ;      // set metadata to 0
+  bzero(r->meta, sizeof(uint32_t) * rec_meta) ;      // set metadata to 0
   r->max_data  = max_data ;                          // max data payload for this record
   r->data_size = 0 ;                                 // no data in record yet
-  r->data = (void *)  (p + sizeof(start_of_record) + sizeof(uint32_t) *  max_meta) ;                    // points to data payload
+  r->data = (void *)  (p + sizeof(start_of_record) + sizeof(uint32_t) *  rec_meta) ;                    // points to data payload
   // r-> rsz already set, > 0 if allocated by RSF_New_record, < 0 otherwise
 
-  return r ; // return address of allocated space
+  return r ; // return address of record
+}
+
+// store metadata into record allocated by RSF_New_record
+int32_t RSF_Record_add_meta(RSF_record *r, uint32_t *meta, uint32_t meta_size, uint32_t data_elem){
+  int32_t dir_meta, rec_meta ;
+  int i ;
+
+  dir_meta = DIR_ML(meta_size) ;                       // directory metadata size
+  rec_meta = REC_ML(meta_size) ;                       // record metadata size
+  if(rec_meta != r->rec_meta) return 0 ;               // inconsistemt record metadata size
+  if(dir_meta > rec_meta) dir_meta = rec_meta ;        // dir_meta <= meta_size
+  r->rec_meta = rec_meta ;                             // set metadata sizes in record
+  r->dir_meta = dir_meta ;
+  r->data_elem = data_elem ;                           // 1/2/4/8
+  for(i=0 ; i<rec_meta ; i++) r->meta[i] = meta[i] ;  // copy metadata
+  return rec_meta ;
 }
 
 // add data to payload in record allocated by RSF_New_record
@@ -684,7 +708,7 @@ void *RSF_Record_meta(RSF_record *r){
 
 // size of metadata in record allocated by RSF_New_record
 uint32_t RSF_Record_meta_size(RSF_record *r){
-  return r->meta_size ;
+  return r->rec_meta ;
 }
 
 // adjust record created with RSF_New_record (make it ready to write)
@@ -701,7 +725,7 @@ fprintf(stderr,"RSF_Adjust_data_record DEBUG : data_size = %ld\n", data_size) ;
   if(data_size > r->max_data) return 0L ;          // not enough space
 
   new_size = sizeof(start_of_record) +             // sor
-             sizeof(uint32_t) * r->meta_size +     // metadata
+             sizeof(uint32_t) * r->rec_meta +     // metadata
              data_size +                           // data
              sizeof(end_of_record) ;               // eor
 //   sor = (start_of_record *) record ;
@@ -709,8 +733,10 @@ fprintf(stderr,"RSF_Adjust_data_record DEBUG : data_size = %ld\n", data_size) ;
   eor = r->sor + new_size - sizeof(end_of_record) ;
 
   // adjust eor and sor to reflect record contents
-  sor->zr = ZR_SOR ; sor->rt = RT_DATA ; sor->rlm = r->meta_size ; RSF_64_to_32(sor->rl, new_size) ;
-  eor->zr = ZR_EOR ; eor->rt = RT_DATA ; eor->rlm = r->meta_size ; RSF_64_to_32(eor->rl, new_size) ;
+  sor->zr = ZR_SOR ; sor->rt = RT_DATA ; sor->rlm = r->rec_meta ; sor->rlmd = r->dir_meta ;
+  RSF_64_to_32(sor->rl, new_size) ;
+  eor->zr = ZR_EOR ; eor->rt = RT_DATA ; eor->rlm = r->rec_meta ;
+  RSF_64_to_32(eor->rl, new_size) ;
 
   return new_size ;   // adjusted size
 }
@@ -738,7 +764,7 @@ int64_t RSF_Available_space(RSF_handle h){
   uint64_t used ;
 
   if( ! RSF_Valid_file(fp) ) return -1 ;
-  if(fp->seg_max == 0) return 0x7FFFFFFFFFFFFFFFl ;           // no limit if not a sparse segment
+  if(fp->seg_max == 0) return 0x7FFFFFFFFFFFFFFFl ;           // no practical limit if not a sparse segment
 
   used = fp->next_write - fp->seg_base +                      // space already used in segment
          fp->vdir_size +                                      // directory current record size
@@ -798,57 +824,55 @@ int64_t RSF_Record_size(uint32_t ml, size_t data_size){
 // meta_size is the size (in 32 bit elements) of the metadata (must be >= file metadata dimension)
 // data is a pointer to record data
 // data_size is the size (in bytes) of the data portion
+// data_element is the length in bytes of the data elements (endianness management)
 // if meta is NULL, data is a pointer to a pre allocated record ( RSF_record )
 // RSF_Adjust_data_record may have to be called
 // lower 16 bits of meta_size : length of metadata written to disk
 // upper 16 bits of meta_size : length of metadata written into vdir (0 means same as disk)
 // written into vdir <= written to disk
 // TODO : use macros to manage metadata lengths
-int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *data, size_t data_size){
+int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *data, size_t data_size, int data_element){
   RSF_File *fp = (RSF_File *) h.p ;
-  uint64_t record_size, total_size, needed, extra ;
-  int64_t slot ;
+  uint64_t record_size, total_size, extra ;
+  int64_t slot, available, desired ;
   start_of_record sor = SOR ;      // start of data record
   end_of_record   eor = EOR ;      // end of data record
   RSF_record *record = NULL ;
   ssize_t nc ;
   uint32_t meta0, rt0, class0 ;
-  int32_t vdir_meta = (meta_size >> 16) ;          // keep the upper 16 bits for future reference
-//   int status ;
+  int32_t vdir_meta ;
 
   if( ! RSF_Valid_file(fp) ) goto ERROR ;          // something not O.K. with fp
 
   if( (fp->mode & RSF_RW) != RSF_RW ) goto ERROR ; // file not open in write mode
   if( fp->next_write <= 0) goto ERROR ;            // next_write address is not set
-  meta_size &= 0xFFFF ;                            // only keep the lower 16 bits
+//   vdir_meta = (meta_size >> 16) ;
+//   meta_size &= 0xFFFF ;                            // only keep the lower 16 bits
+  // metadata stored in vdir may be shorter than meta_size
+  vdir_meta = DIR_ML(meta_size) ;                  // directory metadata size
+  meta_size = REC_ML(meta_size) ;                  // record metadata size
   if(meta_size == 0) meta_size = fp->meta_dim ;    // get default metadata length from file structure
   if(meta_size < fp->meta_dim) goto ERROR ;        // metadata too small, must be at least fp->meta_dim
-  // what is stored in vdir may be shorter than meta_size
-  if(vdir_meta == 0) vdir_meta = meta_size & 0xFFFF ;
-  if(vdir_meta > (meta_size & 0xFFFF)) vdir_meta = meta_size & 0xFFFF ;
+  if(vdir_meta == 0) vdir_meta = meta_size ;       // default size of directory metadata (record metadata size)
+  if(vdir_meta > meta_size) vdir_meta = meta_size ;// directory metadata size vannot be larger than record metadata size
+//   if(vdir_meta == 0) vdir_meta = meta_size & 0xFFFF ;
+//   if(vdir_meta > (meta_size & 0xFFFF)) vdir_meta = meta_size & 0xFFFF ;
 
   record_size = sizeof(start_of_record) +          // start of record
                 meta_size * sizeof(uint32_t) +     // metadata
                 data_size +                        // data
                 sizeof(end_of_record) ;            // end of record
-// fprintf(stderr,"record size = %ld, %ld, %ld, %ld, %ld\n",
-//        record_size,sizeof(start_of_record),fp->meta_dim * sizeof(uint32_t), data_size, sizeof(end_of_record)) ;
   // write record if enough room left in segment (always O.K. if compact segment)
   if(fp->seg_max > 0){                                                 // write into a sparse segment
-    extra  = RSF_Round_size(record_size) +         // this record
-             sizeof(end_of_segment) +              // end of fixed segment
-             sizeof(start_of_segment) +            // new sparse segment (SOS + EOS)
-             sizeof(end_of_segment) +
-             ARBITRARY_OVERHEAD ;                  // arbitrary overhead
-    needed = fp->next_write +
-             extra +
-             fp->vdir_size +                                      // current directory record size
-             sizeof(vdir_entry) + meta_size * sizeof(uint32_t) ;  // space for this entry
-    if( needed > fp->seg_max + fp->seg_base) {
-      fprintf(stderr,"RSF_Put_data ERROR : sparse segment OVERFLOW, switching to new segment\n");
-      // switch to a new segment
-      RSF_Switch_sparse_segment(h, extra) ;
-//       goto ERROR ; // not enough room in segment to accomodate record
+    available = RSF_Available_space(h) ;           // available space in sparse segment according to current conditions
+    desired   = RSF_Round_size(record_size) +      // rounded up size of this record
+                sizeof(vdir_entry) +               // directory space needed for this record
+                vdir_meta * sizeof(uint32_t) ;
+    if(desired > available) {
+      fprintf(stderr,"RSF_Put_data DEBUG : sparse segment OVERFLOW, switching to new segment\n");
+      extra = desired +                          // extra space needed for this record and associated dir entry
+              NEW_SEGMENT_OVERHEAD ;             // extra space needed for closing sparse segment
+      RSF_Switch_sparse_segment(h, extra) ;      // switch to a new segment (minimum size = extra)
     }
   }
   lseek(fp->fd , fp->next_write , SEEK_SET) ; // position file at fp->next_write
@@ -857,12 +881,13 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
   if(meta == NULL){                                                 // pre allocated record structure
 
     record = (RSF_record *) data ;
-    total_size = RSF_Adjust_data_record(h, record, data_size) ;     // adjust to actual data size
-    // make meta_size consistent with record->metasize
-    meta_size = record->meta_size ;                                 // vdir_meta will come from the upper 16 bits of the meta_size argument
-    vdir_meta = (meta_size >> 16) ;
+    total_size = RSF_Adjust_data_record(h, record, data_size) ;     // adjust to actual data size (meta_size assumed already set)
+    // get metadata sizes from record->metasize
+//     meta_size = record->meta_size ;                                 // vdir_meta will come from the upper 16 bits of the meta_size argument
+    vdir_meta = record->dir_meta ; 
+    meta_size = record->rec_meta ;
     if(vdir_meta == 0) vdir_meta = meta_size ;
-    if(vdir_meta > (meta_size & 0xFFFF)) vdir_meta = meta_size & 0xFFFF ;
+    if(vdir_meta > meta_size) vdir_meta = meta_size ;
     meta = record->meta ;                                           // set meta to address of metadata from record
     meta0 = meta[0] ;                                               // save meta[0]
     rt0 = meta0 & 0xFF ;                                            // lower 8 bits
@@ -878,13 +903,14 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
   }else{
 
     meta0 = meta[0] ;                                               // save meta[0]
-    rt0 = meta0 & 0xFF ;                                            // lower 8 bits
-    class0 = meta0 >> 8 ;                                           // upper 24 bits
+    rt0 = meta0 & 0xFF ;                                            // record type in lower 8 bits
+    class0 = meta0 >> 8 ;                                           // record class in upper 24 bits
     if(rt0 != RT_XDAT)
       if(rt0 < 8 || rt0 >= RT_DEL) rt0 = RT_DATA ;                  // RT_DATA (normal data record) by default
     if(class0 == 0) class0 = (fp->rec_class & 0xFFFFFF) ;           // fp->rec_class if unspecified
     meta[0] = (class0 << 8) | ( rt0 & 0xFF) ;                       // RT + record class
-    sor.rlm = meta_size & 0xFFFF ;
+//     sor.rlm = meta_size & 0xFFFF ;
+    sor.rlm = DIR_ML(meta_size) ;
     sor.rt = rt0 ;                                                  // alter record type in start_of_record
     sor.rlmd = vdir_meta ;
     sor.dul = 4 ;
@@ -894,7 +920,7 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
     nc = write(fp->fd, &sor, sizeof(start_of_record)) ;             // write start of record
     nc = write(fp->fd, meta, meta_size * sizeof(uint32_t)) ;        // write metadata
     nc = write(fp->fd, data, data_size) ;                           // write data
-    eor.rlm = meta_size ;
+    eor.rlm = DIR_ML(meta_size) ;
     eor.rt = rt0 ;                                                  // alter record type in end_of_record
     RSF_64_to_32(eor.rl, record_size) ;
     nc = write(fp->fd, &eor, sizeof(end_of_record)) ;               // write end_of_record
@@ -1036,7 +1062,8 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
 // fprintf(stderr,"RSF_Put_file DEBUG : file = '%s', fd = %d\n", filename, fd) ;
   if(fd < 0) goto ERROR ;
   file_size0 = lseek(fd, file_size2, SEEK_END) ;   // get file size
-  file_size2 = ((file_size0 + 3) & (~0x3)) ;       // file size rounded up to a multiple of 4
+//   file_size2 = ((file_size0 + 3) & (~0x3)) ;
+  file_size2 = RSF_Round_size(file_size0) ;        // file size rounded up to a multiple of 4
   unused = file_size2 - file_size0 ;               // number of unused bytes
   name_len = strnlen(filename, name_len) ;         // length of file name
 
@@ -1048,7 +1075,7 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
   fmeta->name[0] = '\0' ;
   for(i=0 ; i<name_len ; i++) fmeta->name[i+1] = filename[i] ;  // copy filename into fmeta->name
 
-  // directory metadata cannot be larger than record metadata
+  // directory metadata cannot be longer than record metadata
   if(vdir_meta > meta_size) vdir_meta = meta_size ;
   dir_meta = (uint32_t *) calloc(vdir_meta + extra_meta, sizeof(uint32_t)) ; // metadata for in memory directory
   memcpy(dir_meta, meta, vdir_meta * sizeof(uint32_t)) ;        // copy meta[0 -> vdir_meta-1] into dir_meta
@@ -1141,7 +1168,7 @@ ERROR:
 // data_size is the actual data size
 int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size){
 
-  return RSF_Put_data(h, NULL, 0, record, data_size) ;
+  return RSF_Put_data(h, NULL, 0, record, data_size, 0) ;
 }
 
 // get key to record from file fp, matching criteria & mask, starting at key0 (slot/index)
@@ -1207,7 +1234,8 @@ fprintf(stderr,"RSF_Get_record DEBUG: key = %ld, wa = %8.8lx, rl = %8.8lx, rlm =
         key, wa, recsize, rlm, rlm0, rlmd, rlmd0);
     if(rlm != rlm0 || rlmd != rlmd0) goto ERROR ;     // inconsistent metadata lengths
 //     sor = (start_of_record *) record->sor ;
-    record->meta_size = rlm ;
+    record->rec_meta = rlm ;
+    record->dir_meta = rlmd ;
     record->meta = record->sor + sizeof(start_of_record) ;
     record->data_size = record->eor - record->data ;
     record->data = record->eor + sizeof(start_of_record) + sizeof(uint32_t) * rlm ;
@@ -1407,6 +1435,8 @@ fprintf(stderr, "RSF_New_empty_segment DEBUG : MUST NOT PRINT\n");
 
 
   fp->meta_dim = meta_dim ;
+  fp->dir_meta = DIR_ML(meta_dim) ;
+  fp->rec_meta = REC_ML(meta_dim) ;
   fp->seg_base = start ;                                     // base offset of active segment
   fp->next_write = start + sizeof(start_of_segment) ;
   fprintf(stderr,"RSF_New_empty_segment DEBUG : EOF at %lx\n", lseek(fp->fd, 0L, SEEK_END)) ;
@@ -1510,6 +1540,7 @@ RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *app
       goto ERROR ;
     }
     *meta_dim = fp->meta_dim ;
+    *meta_dim = DRML(fp->dir_neta, fp->rec_meta) ;
     fp->slot = RSF_Set_file_slot(fp) ;
 // fprintf(stderr,"RSF_Open_file DEBUG : slot assigned = %d\n", fp->slot) ;
     if( RSF_Read_directory(fp) < 0 ){         // read directory from all segments
@@ -1528,6 +1559,8 @@ RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *app
     }
     *meta_dim = sos.meta_dim ;
     fp->meta_dim = sos.meta_dim ;
+    fp->rec_meta = REC_ML(sos.meta_dim) ;
+    fp->dir_meta = DIR_ML(sos.meta_dim) ;
     // TODO: check that sos.head.rlm == 0 (file not open for write and read exclusive mode is selected)
 //     if(sos.head.rlm != 0)                   goto ERROR ;      // file is open 
     if( RSF_Rl_sor(sos.head, RT_SOS) == 0 ) goto ERROR ;      // invalid SOS (wrong record type)
@@ -1600,13 +1633,16 @@ int32_t RSF_Close_compact_segment(RSF_handle h){
   // write active compact segment EOS
   offset_eof = fp->next_write - fp->seg_base  + sizeof(end_of_segment);
   eos.l.head.rlm = fp->meta_dim ;
+  eos.l.head.rlm = fp->rec_meta ;
   RSF_64_to_32(eos.l.head.rl, sizeof(end_of_segment)) ;
   eos.h.meta_dim = fp->meta_dim ;
+  eos.h.meta_dim = DRML_32(fp->dir_meta, fp->rec_meta) ;
   RSF_64_to_32(eos.h.vdir,  offset_vdir) ;                         // vdir record position in file
   RSF_64_to_32(eos.h.vdirs, vdir_size) ;                           // vdir record size
   RSF_64_to_32(eos.h.sseg, offset_eof) ;                           // segment size including EOS
   RSF_64_to_32(eos.h.seg,  offset_eof - sizeof(end_of_segment)) ;  // segment size excluding EOS
   eos.h.tail.rlm = fp->meta_dim ;
+  eos.h.tail.rlm = fp->rec_meta ;
   RSF_64_to_32(eos.h.tail.rl, sizeof(end_of_segment)) ;
   nc = write(fp->fd, &eos, sizeof(end_of_segment)) ;               // write end of compact segment
 

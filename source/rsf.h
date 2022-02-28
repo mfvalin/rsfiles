@@ -31,6 +31,8 @@
 
 // META_RESERVED : number of metadata items reserved for internal use
 // meta[0] : used for record class mask
+
+// DT_08 ... DT_64  : length of data elements in record (for endianness management) (1 2 4 8 bytes)
 #endif
 
 #if ! defined(RSF_VERSION)
@@ -55,6 +57,11 @@
 
 #define RT_DATA_CLASS 1
 #define RT_FILE_CLASS 0x80000
+
+#define DT_08 1
+#define DT_16 2
+#define DT_32 4
+#define DT_64 8
 
 #if defined(IN_FORTRAN_CODE)
 
@@ -106,10 +113,13 @@ typedef struct{
   uint32_t *meta ;     // pointer to metadata array ( sor - sizeof(sor) )
   void     *data ;     // pointer to start of data payload array
   void     *eor ;      // end of record address ( (void *) RSF_record.d + max_data )
-  uint64_t meta_size ; // metadata size in uint32_t units (max 0xFFFF)
   uint64_t data_size ; // actual data size in bytes (may remain 0 in unmanaged records)
   uint64_t max_data ;  // maximum data payload size in bytes
   int64_t rsz ;        // allocated size of RSF_record
+  uint16_t dir_meta ;  // directory metadata size in uint32_t units
+  uint16_t rec_meta ;  // record metadata size in uint32_t units
+  uint16_t data_elem ; // length of data elements in d[] (1/2/4/8 bytes) (endianness management)
+  uint16_t reserved ;
   uint8_t  d[] ;       // dynamic data array (bytes)
 } RSF_record ;
 
@@ -215,7 +225,7 @@ interface
 
   interface
 #else
-  int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *data, size_t data_size) ;
+  int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *data, size_t data_size, int data_element) ;
   int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
 #endif
 
