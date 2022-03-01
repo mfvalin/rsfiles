@@ -26,51 +26,71 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
 // | segment 0 | segment 1 |..................| segment N-1 |
 // +-----------+-----------+                  +-------------+
 //
-//           segment structure (compact segment)
+//           segment structure
 //           data and directory record(s) may be absent (empty segment)
+//
+//           open compact segment
+// +-----+------+               +------+
+// | SOS | data |-- more data --| data |
+// +-----+------+               +------+
+//           compact segment after close
 // +-----+------+               +------+-----------+------+------+
 // | SOS | data |-- more data --| data | directory | EOSl | EOSh |
 // +-----+------+               +------+-----------+------+------+
-//           segment structure (sparse segment)
-//           data and directory record(s) may be absent (empty segment)
-// +-----+------+               +------+-----------+------+               +------+
-// | SOS | data |-- more data --| data | directory | EOSl |......gap......| EOSh |
-// +-----+------+               +------+-----------+------+               +------+
+//           open sparse segment
+// +-----+------+               +------+                                                       +------+
+// | SOS | data |-- more data --| data |......................gap..............................| EOSh |
+// +-----+------+               +------+                                                       +------+
+//           sparse segment after close (becomes compact segment + sparse segment)
+// +-----+------+               +------+-----------+------+------+------+------+               +------+
+// | SOS | data |-- more data --| data | directory | EOSl | EOSh | SOS  | EOSl |......gap......| EOSh |
+// +-----+------+               +------+-----------+------+------+------+------+               +------+
+// <-------------------------- new compact segment --------------x----- new sparse segment ----------->
 // SOS       start of data record
 // data      data record
 // directory directory record
 // EOSl      low part of end of segment record
-// EOSh      high part of end of segment record
-// gap       unpopulated zone in file address space (sparse file)
+// EOSh      high part of end of segment record (adjacent to EOSl in compact segments, disjoint from it in sparse segments)
+// gap       unpopulated zone in file address space (sparse segment)
 
-// structure of a record
+// generic structure of a record
 //   ZR    RLM    RT   RL[0]   RL[1]   LMETA <------ record specific part -------> RL[0]   RL[1]   ZR    RLM    RT
 // +----+-------+----+-------+-------+-------+-----------------------------------+-------+-------+----+-------+----+
 // |    |       |    |       |       |       |            PAYLOAD                |       |       |    |       |    |
 // +----+-------+----+-------+-------+-------+-----------------------------------+-------+-------+----+-------+----+
+// data record
 // +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
 // |    |       |    |       |       |       |   META   |       DATA             |       |       |    |       |    |
 // +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
+// directory record
+// +----+-------+----+-------+-------+-------+-----------------------------------+-------+-------+----+-------+----+
+// |    |       |    |       |       |       |             DIRECTORY             |       |       |    |       |    |
+// +----+-------+----+-------+-------+-------+-----------------------------------+-------+-------+----+-------+----+
 // <---------- start of record (SOR) -------->                                   <------- end of record (EOR) ----->
 //   8     16     8     32      32    16/8/8   RLM x 32                              32      32      8    16     8   (# of bits)
 // <--------------------------------------------  RL[0] * 2**32 + RL[1] bytes  ------------------------------------>
 // ZR    : marker (0xFE for SOR, 0xFF for EOR)
-// RLM   : length of metadata in 32 bit units (data record)
-//         RLM in a data record MAY be larger than directory length of metadata
+// RLM   : length of in record metadata in 32 bit units (data record only)
+//         RLM in a data record MAY be larger than directory length of metadata (RLMD)
 //         (secondary metadata not in directory)
 //       : open-for-write flag (Start of segment record) (0 if not open for write)
 //       : undefined (End of segment or other record)
-// LMETA : record local metadata, RLMD, UBC, DUL [] )
-//         RLMD (16 bits) directory metadata length for this record
+// LMETA : record header metadata, RLMD, UBC, DUL
+//         RLMD (16 bits) directory metadata length (data records) (RLMD <= RLM)
+//              minimum directory metadata length (Start of segment or directory records)
+//              undefined (other records)
 //         UBC  ( 8 bits) Unused Bit Count (RL is always a multiple of 4 Bytes)
-//         DUL  ( 8 bits) Data Unit Length (1/2/4/8 bytes) for Endianness adjustment
+//         DUL  ( 8 bits) Data Unit Length (1/2/4/8 bytes) (used for Endianness management)
 // RT    : record type (normally 0 -> 0x80)
 // RL    : record length = RL[0] * 2**32 + RL[1] bytes (ALWAYS a multiple of 4 bytes)
-// META  : array of 32 bit items (data record metadata)
-// DATA  : array of 8/16/32/64 bit items
+// META  : array of 32 bit items (data record metadata) (META[0] has special contents)
+// DATA  : sequence of 8/16/32/64 bit items
 //
-// some part of the PAYLOAD may be "virtual" 
-// (sparse records like a sparse segment "split" end of segment record)
+// some part of the PAYLOAD may be "virtual" (uses address space but without anything written)
+// (sparse records like a sparse segment with "split" end of segment record)
+// (see Linux/UNIX sparse files)
+//
+// record metadata = directory metadata followed by (optional) extra metadata
 //
 // for endianness management purposes, these files are mostly composed of 32 bit items, 
 //   but 8/16/32/64 data items may be found in the payload
@@ -79,14 +99,15 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
 // record lengths are always multiples of 4 bytes
 //
 // the first segment (0) of a file MUST be a compact segment (CANNOT be a sparse segment)
+// if the first created segment is sparse, segment 0 is a minimal compact segment (SOS + EOS)
 //
-// a segment can be opened for write only ONCE, and cannot be reopened to append data into it (a new segment must be created)
+// a segment can only be opened for write ONCE, and cannot be reopened to append data into it (a new segment MUST be created)
 //
 // a sparse segment becomes a compact segment when closed (a dummy sparse segment takes up the remaining space)
 //
 // the concatenation of 2 RSF files is a valid RSF file
 //
-// RSF files may be used as containers for other files
+// RSF files may be used as containers for other files (records with RT = RT_FILE)
 //
 // a "FUSE" operation can be used to consolidate all directories from a file into a single directory
 //   to make future access more efficient
@@ -146,7 +167,7 @@ static inline void RSF_64_to_32(uint32_t u32[2], uint64_t u64){
 typedef struct {                   // record header
   uint32_t rt:8, rlm:16, zr:8 ;    // ZR_SOR, metadata length (32 bit units), record type
   uint32_t rl[2] ;                 // upper[0], lower[1] 32 bits of record length (bytes)
-  uint32_t  rlmd:16, ubc:8, dul:8 ;
+  uint32_t rlmd:16, ubc:8, dul:8 ;
 } start_of_record ;
 
 #define SOR {RT_DATA, 0, ZR_SOR, {0, 0}, 0, 0, 0}
@@ -184,13 +205,32 @@ static inline uint64_t RSF_Rl_eor(end_of_record eor, int rt){
   return rl ;
 }
 //
-//   structure of a segment (if compact segment. GAP is 0 bytes)
-//   +-----+------+                   +------+-----------+-------+                             +-------+
-//   | SOS | data | ................. | data | DIrectory | EOSlo | .. GAP if sparse segment .. | EOShi |
-//   +-----+------+                   +------+-----------+-------+                             +-------+
-//   <-- DIR  =  dir[0]  * 2**32 + dir[1] --->
+//   empty compact segment
+//   +-----+-------+-------+
+//   | SOS | EOSlo | EOShi |
+//   +-----+-------+-------+
+//   open (active) compact segment
+//   +-----+------+                   +------+
+//   | SOS | data | ................. | data |
+//   +-----+------+                   +------+
+//
+//   empty sparse segment
+//   +-----+-------+            +-------+
+//   | SOS | EOSlo | .. GAP  .. | EOShi |
+//   +-----+-------+            +-------+
+//   open (active) sparse segment
+//   +-----+------+                   +------+            +-------+
+//   | SOS | data | ................. | data | .. GAP  .. | EOShi |
+//   +-----+------+                   +------+            +-------+
+//
+//   closed segment (if original segment was compact, the sparse part is absent)
+//   +-----+------+                   +------+-----------+-------+-------+-----+-------+            +-------+
+//   | SOS | data | ................. | data | DIrectory | EOSlo | EOShi | SOS | EOSlo | .. GAP  .. | EOShi |
+//   +-----+------+                   +------+-----------+-------+-------+-----+-------+            +-------+
+//   <-- VDIR =  vdir[0] * 2**32 + vdir[1] -->
+//                                           <-- VDIRS --> =  vdirs[0] * 2**32 + vdirs[1]
 //   <-- SEG  =  seg[0]  * 2**32 + seg[1] --------------->
-//   <---SSEG =  sseg[0] * 2**32 + sseg[1] ------------------------------------------------------------>
+//   <-- SSEG =  sseg[0] * 2**32 + sseg[1] ------------------------------x-------- new sparse segment ------->
 //
 //   sparse segment  : the EOS record is essentially split in two, and its record length may be very large
 //                     record length = sizeof(end_of_segment_lo) + sizeof(end_of_segment_hi) + GAP
@@ -201,7 +241,6 @@ typedef struct{           // start of segment record, matched by a corresponding
   start_of_record head ;  // rt=3
   unsigned char sig1[8] ; // RSF marker + application marker ('RSF0cccc) where cccc is 4 character application signature
   uint32_t sign ;         // 0xDEADBEEF hex signature for start_of_segment
-  uint32_t meta_dim ;     // metadata sizes (uint32_t units)
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes) (excluding EOS record)
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of segment size (bytes) (including EOS record)
   uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
@@ -218,7 +257,7 @@ static inline uint64_t RSF_Rl_sos(start_of_segment sos){
 }
 
 #define SOS { {RT_SOS, 0, ZR_SOR, {0, sizeof(start_of_segment)}},  \
-              {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
+              {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
               {{0, sizeof(start_of_segment)}, RT_SOS, 0, ZR_EOR} }
 
 typedef struct{           // head part of end_of_segment record (low address in file)
@@ -230,7 +269,6 @@ typedef struct{           // head part of end_of_segment record (low address in 
 
 typedef struct{           // tail part of end_of_segment record (high address in file)
   uint32_t sign ;         // 0xCAFEFADE hex signature for end_of_segment_hi
-  uint32_t meta_dim ;     // metadata sizes (uint32_t units)
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes)
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of sparse segment size (bytes) (0 if not sparse file)
   uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
@@ -252,7 +290,7 @@ static inline uint64_t RSF_Rl_eos(end_of_segment_lo eosl, end_of_segment_hi eosh
   return rl1 ;
 }
 
-#define EOSHI { 0xCAFEFADE, 0, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
+#define EOSHI { 0xCAFEFADE, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
               {{0, sizeof(end_of_segment_lo)+sizeof(end_of_segment_hi)}, RT_EOS, 0, ZR_EOR} }
 
 typedef struct{           // compact end of segment (non sparse file)
@@ -284,7 +322,7 @@ struct directory_block{
 // build composite ml field 
 #define DRML_32(ml_dir, ml_rec)  ( ( (ml_dir) << 16 ) | ( (ml_rec) & 0xFFFF ) )
 // propagate lower 16 bits into upper 16 bits if upper 16 are zero
-#define DRML_FIX(ML) ( ((ML) >> 16) == 0 ? ((ML) <<16) | (ML) : (ML) )
+// #define DRML_FIX(ML) ( ((ML) >> 16) == 0 ? ((ML) <<16) | (ML) : (ML) )
 
 typedef struct{           // directory entry (both file and memory)
   uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment (or file)
@@ -296,7 +334,6 @@ typedef struct{           // directory entry (both file and memory)
 typedef struct{              // directory record to be written to file
   start_of_record sor ;      // start of record
   uint32_t entries_nused ;   // number of directory entries used
-  uint32_t meta_dim ;        // size of a directory entry metadata (in 32 bit units)
   vdir_entry entry[] ;       // open array of directory entries
 //end_of_record eor          // end of record, after last entry, at &entry[entries_nused]
 } disk_vdir ;
@@ -330,7 +367,6 @@ struct RSF_File{                 // internal (in memory) structure for access to
   off_t    size ;                // file size
   off_t    next_write ;          // file offset from beginning of file for next write operation ( -1 if not defined)
   off_t    cur_pos ;             // current file position from beginning of file ( -1 if not defined)
-//   uint32_t meta_dim ;            // directory entry metadata size (uint32_t units)
   uint32_t rec_class ;           // record class being writen (default : data class 1) (rightmost 24 bits only)
   uint32_t class_mask ;          // record class mask (for scan/read/...) (by default all ones)
   uint32_t dir_read ;            // number of entries read from file directory 
@@ -368,7 +404,6 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
 //   fp->size       =  0 ;
   fp->next_write = -1 ;
   fp->cur_pos    = -1 ;
-//   fp->meta_dim   =  0 ;
   fp->rec_class   =  RT_DATA_CLASS ;
   fp->class_mask  =  0xFFFFFFFFu ;
 //   fp->dir_read  =  0 ;

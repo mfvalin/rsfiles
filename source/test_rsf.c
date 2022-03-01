@@ -197,7 +197,7 @@ int the_test(int argc, char **argv){
     h1 = RSF_Open_file(argv[1], RSF_RW + RSF_FUSE, &meta_dim, "DeMo", NULL);
 //     h1 = RSF_Open_file(argv[1], RSF_RO , &meta_dim, "DeMo", NULL);
     free_space1 = RSF_Available_space(h1) ;
-    fprintf(stderr,"free space = %16.16lx\n", free_space1);
+    fprintf(stderr,"free space = %16.16lx, meta_dim = %d\n", free_space1, meta_dim);
     RSF_Dump_vdir(h1) ;
     RSF_Close_file(h1) ;
   }
