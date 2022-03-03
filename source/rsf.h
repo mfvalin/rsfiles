@@ -53,6 +53,7 @@
 #define RT_EOS     4
 #define RT_VDIR    6
 #define RT_FILE    7
+#define RT_CUSTOM  8
 #define RT_DEL  0x80
 
 #define RT_DATA_CLASS 1

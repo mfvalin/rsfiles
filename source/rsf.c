@@ -263,19 +263,26 @@ ERROR :
 }
 
 // scan vdir (VARIABLE length metadata) of file fp to find a record where (metadata & mask)  matches (criteria & mask)
-// start one position after position indicated by key0 (if key0 == 0, start from beginning of file)
-// return file slot(index) in upper 32 bits, record index in lower 32 bits (both in origin 1)
-// return an invalid key if no match is found
-// criteria, mask are 32 bit arrays
-// lcrit is the length of both criteria and mask arrays
-// return key for record, -1 in case of error, key pointing one beyond last record if no match is found
+// criteria, mask are arrays of 32 bit items (like metadata)
+// if a matching function has been associated with the file, it is used insteaad of the default match function
+//
+// key0     start scan one position after position described by key
+//          (if key0 == 0, start from beginning of file directory)
+// criteria what user is looking for
+// mask     0 bits in mask imply don't care conditions for those bits
+// lcrit    length of both criteria and mask arrays
+// wa       address of record in file if found (left untouched if no match)
+// rl       record length if found (left untouched if no match)
+// return   key for record file slot(index) in upper 32 bits, record index in lower 32 bits (both in origin 1)
+//          -1 in case of error
+//          invalid key pointing one beyond last record if no match is found
 int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *mask, uint32_t lcrit, uint64_t *wa, uint64_t *rl)
 {
   int64_t slot, key ;
-  int index, i, nmeta ;
+  int index, i, dir_meta ;
   vdir_entry *ventry ;
   uint32_t *meta ;
-  uint32_t rt0, class0 ;
+  uint32_t rt0, class0, class_meta ;
   RSF_Match_fn *scan_match = NULL ;
   uint32_t mask0 = 0xFFFFFFFF ;   // default mask0 is all bits active
   char *error = "" ;
@@ -286,7 +293,7 @@ int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *
     goto ERROR ;      // something wrong. with fp
   }
   if( (key0 != 0) && ((key0 >> 32) != slot) ) {
-    error = "invalid slot" ;
+    error = "inconsistent file slot" ;
     goto ERROR ;      // slot in key different from file table slot
   }
   // slot is origin 1 (zero is invalid)
@@ -299,43 +306,54 @@ int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *
     goto ERROR ;   // beyond last record
   }
 
+  if(criteria == NULL){                     // no criteria specified, anything matches
+    lcrit = 0 ;
+  }else{                                    // criteria were specified
+    // mask[0] == 0 will deactivate any record type / class based selection
+    mask0 = mask ? mask[0] : mask0 ;                  // set mask0 to default if mask is NULL
+    rt0      = (criteria[0] & mask0) & 0xFF ;         // low level record type match target
+    if(rt0 >= RT_DEL) rt0 = 0 ;                       // invalid record type, no selection based on rt
+    // check for valid type for a data record (RT_DATA, RT_XDAT, RT_CUSTOM->RT_DEL-1 are valid record types)
+    if(rt0 < RT_CUSTOM && rt0 != RT_DATA && rt0 != RT_XDAT) rt0 = 0 ;
+    // rt0 == 0 indicates no selection based upon record type
+
+    class0 = criteria[0] >> 8 ;                       // get class from criteria[0] (upper 24 bits)
+    if(class0 == 0) class0 = fp->rec_class ;          // if 0, use default class for file
+    class0 &= (mask0 >> 8) ;                          // apply mask to get final low level record class match target
+  }
+
   scan_match = fp->matchfn ;                // get metadata match function associated to this file
   if(scan_match == NULL)
     scan_match = &RSF_Default_match ;       // no function associated, use default function
 
-  mask0 = mask ? mask[0] : mask0 ;                  // set mask0 to default if mask is NULL
-  rt0      = (criteria[0] & mask0) & 0xFF ;         // low level record type match target
-  if(rt0 >= RT_DEL) rt0 = 0 ;                       // invalid record type
-  // check for valid type for a data record (RT_DATA, RT_XDAT, 8->RT_DEL-1 are valid record types)
-  if(rt0 < 8 && rt0 != RT_DATA && rt0 != RT_XDAT) rt0 = 0 ;
-
-  class0   = criteria[0] >> 8 ;                     // class from criteria (upper 24 bits)
-  if(class0 == 0) class0 = fp->rec_class ;          // if 0, use default class for file
-  class0 &= (mask0 >> 8) ;                          // apply mask to get final low level record class match target
-
-  for( ; index < fp->vdir_used ; index++ ){
-    ventry = fp->vdir[index] ;
-    meta = ventry->meta ;
-    if( (rt0 != 0) && ( rt0 != (meta[0] & 0xFF) ) )     continue ;   // record type mismatch
-    if( (class0 != 0) && ( class0 != (meta[0] >> 8) ) ) continue ;   // class mismatch
-    // the first element of meta, mask, criteria is ignored, 
-    nmeta = DIR_ML(ventry->ml) ;
-//     if(lcrit > nmeta) continue ;                 // more criteria thatn metadata
-    if(nmeta > lcrit) nmeta = lcrit ;               // less criteria than metadata
+  for( ; index < fp->vdir_used ; index++ ){ // loop over records in directory
+    if(lcrit == 0) goto MATCH ;             // no criteria specified, everything matches
+    ventry = fp->vdir[index] ;              // get entry
+    meta = ventry->meta ;                   // entry metadata
+    // the first element of meta, mask, criteria will be processed here, and not sent to matching function
+    if( (rt0 != 0) && ( rt0 != (meta[0] & 0xFF) ) )      continue ;   // record type mismatch
+    class_meta = meta[0] >> 8 ;                       // get class of record from meta[0]
+    if( (class0 != 0) && ( (class0 & class_meta) == 0 ) ) continue ;   // class mismatch, 
+    dir_meta = DIR_ML(ventry->ml) ;                    // length of directory metadata
+//     if(lcrit > nmeta) continue ;                 // more criteria than metadata
+//     if(nmeta > lcrit) nmeta = lcrit ;            // less criteria than metadata
     // the first element of criteria, meta, mask (if applicable) is ignored
-    if((*scan_match)(criteria+1, meta+1, mask ? mask+1 : NULL, lcrit-1, nmeta-1) == 1 ){   // do we have a match at position index ?
-      key = key + index + 1 ;                                      // add record number (origin 1) to key
-      *wa = RSF_32_to_64(ventry->wa) ;                               // address of record in file
-      *rl = RSF_32_to_64(ventry->rl) ;                               // record length
-// fprintf(stderr,"RSF_Scan_vdir key = %12.12lx\n",key) ;
-      return key ;                   // return key value containing file key and record index
+    if((*scan_match)(criteria+1, meta+1, mask ? mask+1 : NULL, lcrit-1, dir_meta-1) == 1 ){   // do we have a match at position index ?
+      goto MATCH ;
     }
   }
 //   badkey = key + fp->vdir_used + 1 ;   // DEBUG : falling through, return an index one beyond last record
   error = "no match found" ;
+
 ERROR :
 fprintf(stderr,"RSF_Scan_vdir ERROR : key = %16.16lx, len = %d,  %s\n", key0, lcrit, error) ;
   return badkey ;
+
+MATCH:
+  key = key + index + 1 ;               // add record number (origin 1) to key
+  *wa = RSF_32_to_64(ventry->wa) ;      // address of record in file
+  *rl = RSF_32_to_64(ventry->rl) ;      // record length
+  return key ;                          // return key value containing file slot and record index
 }
 
 // read file directory (all segments) into memory directory
@@ -534,7 +552,7 @@ int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, in
 {
   int i ;
   if(ncrit > nmeta) return 0;  // too many criteria, no match
-  if(ncrit == 0) return 1 ;    // no criteria, it is a match
+  if(ncrit <= 0) return 1 ;    // no criteria, it is a match
   if(mask != NULL) {
     for(i = 0 ; i < ncrit ; i++){
       if( (criteria[i] & mask[i]) != (meta[i] & mask[i]) ) {
@@ -911,7 +929,7 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
     rt0 = meta0 & 0xFF ;                                            // lower 8 bits
     class0 = meta0 >> 8 ;                                           // upper 24 bits
     if(rt0 != RT_XDAT)
-      if(rt0 < 8 || rt0 >= RT_DEL) rt0 = RT_DATA ;                  // RT_DATA (normal data record) by default
+      if(rt0 < RT_CUSTOM || rt0 >= RT_DEL) rt0 = RT_DATA ;          // RT_DATA (normal data record) by default
     if(class0 == 0) class0 = (fp->rec_class & 0xFFFFFF) ;           // fp->rec_class if unspecified
     meta[0] = (class0 << 8) | ( rt0 & 0xFF) ;                       // RT + record class
     ((start_of_record *) record->sor)->rt = rt0 ;                   // alter record type in start_of_record
@@ -924,7 +942,7 @@ int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *dat
     rt0 = meta0 & 0xFF ;                                            // record type in lower 8 bits
     class0 = meta0 >> 8 ;                                           // record class in upper 24 bits
     if(rt0 != RT_XDAT)
-      if(rt0 < 8 || rt0 >= RT_DEL) rt0 = RT_DATA ;                  // RT_DATA (normal data record) by default
+      if(rt0 < RT_CUSTOM || rt0 >= RT_DEL) rt0 = RT_DATA ;          // RT_DATA (normal data record) by default
     if(class0 == 0) class0 = (fp->rec_class & 0xFFFFFF) ;           // fp->rec_class if unspecified
     meta[0] = (class0 << 8) | ( rt0 & 0xFF) ;                       // RT + record class
 //     sor.rlm = meta_size & 0xFFFF ;
