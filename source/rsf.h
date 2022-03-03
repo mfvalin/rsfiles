@@ -58,10 +58,11 @@
 #define RT_DATA_CLASS 1
 #define RT_FILE_CLASS 0x80000
 
-#define DT_08 1
-#define DT_16 2
-#define DT_32 4
-#define DT_64 8
+#define DT_ANY 0
+#define DT_08  1
+#define DT_16  2
+#define DT_32  4
+#define DT_64  8
 
 #if defined(IN_FORTRAN_CODE)
 

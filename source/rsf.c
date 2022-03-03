@@ -19,27 +19,28 @@
 // =================================  table of pointers to rsf files (slots) =================================
 static pointer *rsf_files = NULL ;         // global table of pointers to rsf files (slot table)
 static int rsf_files_open = 0 ;            // number of rsf files currently open
-static size_t max_rsf_files_open = 1024 ;  // by default no more than 1024 files open simultaneously
+static size_t max_rsf_files_open = 1024 ;  // by default no more than 1024 files can be open simultaneously
 
-// allocate global table of pointers to rsf files if not already done
-// return table address if successful, NULL otherwise
+// allocate global table of pointers (slot table) to rsf files if not already done
+// return table address if successful, NULL if table cannot be allocated
 static void *RSF_Slot_table_allocate()
 {
   struct rlimit rlim ;
 
   if(rsf_files != NULL) return rsf_files ;                    // slot table already allocated
-  getrlimit(RLIMIT_NOFILE, &rlim) ;                           // get file number limit for process
+  getrlimit(RLIMIT_NOFILE, &rlim) ;                           // get open files number limit for process
   if(rlim.rlim_cur > max_rsf_files_open) max_rsf_files_open = rlim.rlim_cur ;
-  max_rsf_files_open = (max_rsf_files_open <= 131072) ? max_rsf_files_open : 131072 ; // no more than 128K files
+  max_rsf_files_open = (max_rsf_files_open <= 131072) ? max_rsf_files_open : 131072 ; // never more than 128K files
   return  calloc(sizeof(pointer), max_rsf_files_open) ;       // allocate zro filled table for max number of allowed files
 }
 
-// find slot matching p in global slot table (p is a pointer to RSF_file)
-// return slot number if successful 
+// find slot matching p in global slot table
+// p      pointer to RSF_file structure
+// return slot number if successful, -1 in case of error
 static int32_t RSF_Find_file_slot(void *p)
 {
   int i ;
-  if(rsf_files == NULL) rsf_files = RSF_Slot_table_allocate() ;
+  if(rsf_files == NULL) rsf_files = RSF_Slot_table_allocate() ;  // first time around, allocate table
   if(rsf_files == NULL) return -1 ;
 
   if(p == NULL) return -1 ;
@@ -49,28 +50,30 @@ static int32_t RSF_Find_file_slot(void *p)
   return -1 ;   // not found
 }
 
-// find a free slot in global slot table and set it to p (p is a pointer to RSF_file)
-// return slot number if successful 
+// find a free slot in global slot table and set it to p
+// p      pointer to RSF_file structure
+// return slot number if successful, -1 if table is full
 static int32_t RSF_Set_file_slot(void *p)
 {
   int i ;
 
-  if(rsf_files == NULL) rsf_files = RSF_Slot_table_allocate() ;
+  if(rsf_files == NULL) rsf_files = RSF_Slot_table_allocate() ;  // first time around, allocate table
   if(rsf_files == NULL) return -1 ;
 
   for(i = 0 ; i < max_rsf_files_open ; i++) {
     if(rsf_files[i] == NULL) {
       rsf_files[i] = p ;
       rsf_files_open ++ ;     // one more open file
-fprintf(stderr,"RSF_Set_file_slot DEBUG: rsf file table slot %d assigned, p = %p\n", i, p);
+// fprintf(stderr,"RSF_Set_file_slot DEBUG: rsf file table slot %d assigned, p = %p\n", i, p);
       return i ;              // slot number
     }
   }
-  return -1 ;     // eventually add code to allocate a larger table
+  return -1 ;     // pointer not found or table full
 }
 
-// remove existing file pointer p from global slot table (p is a pointer to RSF_file)
-// return slot number if successful , -1 if error
+// remove existing pointer p from global slot table
+// p      pointer to RSF_file structure
+// return former slot number if successful , -1 if error
 static int32_t RSF_Purge_file_slot(void *p)
 {
   int i ;
@@ -81,7 +84,7 @@ static int32_t RSF_Purge_file_slot(void *p)
     if(rsf_files[i] == p) {
       rsf_files[i] = (void *) NULL ;
       rsf_files_open-- ;     // one less open file
-fprintf(stderr,"RSF_Purge_file_slot DEBUG: rsf file table slot %d freed, p = %p\n", i, p);
+// fprintf(stderr,"RSF_Purge_file_slot DEBUG: rsf file table slot %d freed, p = %p\n", i, p);
       return i ;             // slot number
     }
   }
@@ -90,38 +93,46 @@ fprintf(stderr,"RSF_Purge_file_slot DEBUG: rsf file table slot %d freed, p = %p\
 
 // =================================  utility functions =================================
 
-// consistency checks on file handle fp
-// if valid, return slot number + 1, otherwise return 0 (corresponding to an invalid slot)
+// check if fp points to a valid RSF_File structure
+// fp     pointer to RSF_File structure
+// return slot number + 1 if valid structure, otherwise return 0
 static int32_t RSF_Valid_file(RSF_File *fp){
   if(fp == NULL) {
-    fprintf(stderr,"ERROR: RSF_Valid_file, file handle is NULL\n");
+    fprintf(stderr,"RSF_Valid_file ERROR: file handle is NULL\n");
     return 0 ;                   // NULL pointer
   }
   if(fp->fd < 0) {
-    fprintf(stderr,"ERROR: RSF_Valid_file, fd < 0 (%d)\n", fp->fd);
+    fprintf(stderr,"RSF_Valid_file ERROR: fd < 0 (%d)\n", fp->fd);
     return 0 ;                   // file is not open, ERROR
   }
   // get file slot from file handle table if not initialized
   if(fp->slot < 0) fp->slot = RSF_Find_file_slot(fp) ;
   if(fp->slot < 0) {
-    fprintf(stderr,"ERROR: RSF_Valid_file, no slot found\n");
-    return 0 ;                 // not in file handle table
+    fprintf(stderr,"RSF_Valid_file ERROR: no slot found in file handle\n");
+    return 0 ;                   // not in file handle table
   }
   if(fp != rsf_files[fp->slot] ) {
-    fprintf(stderr,"ERROR: RSF_Valid_file, inconsistent slot data %p %p, slot = %d\n", fp, rsf_files[fp->slot], fp->slot);
-    return 0 ;   // inconsistent slot
+    fprintf(stderr,"RSF_Valid_file ERROR: inconsistent slot data %p %p, slot = %d\n", fp, rsf_files[fp->slot], fp->slot);
+    return 0 ;                   // inconsistent slot
   }
-//   fprintf(stderr,"DEBUG: slot = %d\n", fp->slot);
   return fp->slot + 1;
 }
 
 // =================================  directory management =================================
 
-// create a new directory block and 
-// insert it into the block list associated with file fp (insertion at the beginning of the list)
-// the block size will be able to contain at least min_block bytes
+// the directory is managed using
+//  - an array of pointers (one per record) into the chained list of metadata contents blocks
+//  - a chained list of metadata contents blocks
+// if/when the array of pointers gets full, it is reallocated with a larger size
+// if/when a metadata contents block is full, a new block is created and chained into the list
+
+// - create a new directory metadata contents block
+// - insert it into the block list associated with RSF_File pointer fp (insertion at the beginning of the list)
+// the block will be able to contain at least min_block bytes
 // (VARIABLE length metadata directories)
-// return the address of the block
+// fp        pointer to RSF file control structure
+// min_block minimum size for the block
+// return    address of the block (NULL in case of error)
 static directory_block *RSF_Add_vdir_block(RSF_File *fp, uint32_t min_block)
 {
   directory_block *dd ;
@@ -132,7 +143,7 @@ static directory_block *RSF_Add_vdir_block(RSF_File *fp, uint32_t min_block)
   p = calloc(sz, sizeof(char)) ;         // allocate a block filled with nulls
   if(p == NULL) return NULL ;            // malloc failed
   dd = (directory_block *) p ;
-  dd->next = fp->dirblocks ;             // point next block to current list
+  dd->next = fp->dirblocks ;             // next block pointer -> start of current list
   dd->cur = dd->entries ;                // beginning of entries storage area (insertion point)
   dd->top = p + sz ;                     // last usable addess in block is dd->top -1
   fp->dirblocks = dd ;                   // new start of blocks list
@@ -142,11 +153,12 @@ fprintf(stderr,"RSF_Add_vdir_block DEBUG: added block of size %ld, next = %p, fp
 
 // manage metadata directory structures associated with file fp
 // make sure that there is room for at least one more entry
+// fp    pointer to RSF file control structure
 static void RSF_Vdir_setup(RSF_File *fp){
   int i ;
   if(fp->dirblocks == NULL) {                                       // first time around
     RSF_Add_vdir_block(fp, 0) ;                                     // create first entries block (default size)
-    fp->vdir_size = DISK_VDIR_BASE_SIZE ;                           // direcord record size with no entries
+    fp->vdir_size = DISK_VDIR_BASE_SIZE ;                           // record size of an empty directory
   }
   if(fp->vdir_used >= fp->vdir_slots) {                             // table is full, reallocate with a larger size
     fp->vdir_slots += DIR_SLOTS_INCREMENT ;                         // increase number of slots
@@ -157,17 +169,19 @@ static void RSF_Vdir_setup(RSF_File *fp){
   }
 }
 
-// add a new VARIABLE length metadata entry to memory directory
-// fp    pointer to RSF file control struct
-// meta  pointer to metadata array (32 bit elements)
-// mlr   lower 16 bits record metadata length
-//       upper 16 bits directory metadata length (if zero, same as record metadata length)
-// wa    byte address of record in file
-// rl    record length in bytes (should always be a multiple of 4)
+// add a new VARIABLE length metadata entry into memory directory (for a new record)
+// fp     pointer to RSF file control structure
+// meta   pointer to metadata array (32 bit elements)
+// mlr    lower 16 bits record metadata length
+//        upper 16 bits directory metadata length (if zero, same as record metadata length)
+// wa     byte address of record in file
+// rl     record length in bytes (should always be a multiple of 4)
+// return index key of record, -1 in case of error (upper 32 bits, file slot number, lower 32 bits record number)
+//        both slot number and record number in origin 1, so 0 would be an invalid record index key
 static int64_t RSF_Add_vdir_entry(RSF_File *fp, uint32_t *meta, uint32_t mlr, uint64_t wa, uint64_t rl)
 {
   directory_block *dd ;
-  int needed ;   // needed size for entry to be added
+  int needed ;                         // needed size for entry to be added
   vdir_entry *entry ;
   int i ;
   int64_t index, slot ;
@@ -193,33 +207,35 @@ static int64_t RSF_Add_vdir_entry(RSF_File *fp, uint32_t *meta, uint32_t mlr, ui
   RSF_64_to_32(entry->rl, rl) ;        // record length
   entry->ml = DRML_32(mld, mlr) ;      // composite entry with directory and record metadata length
   for(i = 0 ; i < mld ; i++)
-    entry->meta[i] = meta[i] ;         // insert directory metadata
+    entry->meta[i] = meta[i] ;         // copy directory metadata
   dd->cur += needed ;                  // update insertion point
 
-  fp->vdir[fp->vdir_used] = entry ;    // directory entry
-  fp->vdir_used++ ;                    // update number of entries in use
-  fp->vdir_size += needed ;            // update directory size
+  fp->vdir[fp->vdir_used] = entry ;    // enter pointer to entry into vdir array
+  fp->vdir_used++ ;                    // update number of vdir entries in use
+  fp->vdir_size += needed ;            // update directory size (used to compute directory record size)
   index = fp->vdir_used ;
   index |= slot ;                      // record key (file slot , record index) (both ORIGIN 1)
   return index ;
+
 ERROR:
   return -1 ;
 }
 
-// retrieve a record directory entry using key (file slot , record index) (both ORIGIN 1)
-// fp   pointer to RSF file control struct
-// key  record key from RSF_Add_vdir_entry, RSF_Lookup, RSF_Scan_vdir, etc ...
-// wa   record address in file
-// rl   record length in bytes
-// meta pointer to directory metadata for record
-// return length of metadata in 32 bit units
+// retrieve the contents of a record directory entry using key (file slot , record index) (both ORIGIN 1)
+// fp     pointer to RSF file control structure
+// key    record key from RSF_Add_vdir_entry, RSF_Lookup, RSF_Scan_vdir, etc ...
+// wa     record address in file (bytes)
+// rl     record length (bytes)
+// meta   pointer to memory directory metadata for record
+// return length of metadata in 32 bit units, -1 if error
+//        in case of error, 
 int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint64_t *rl, uint32_t **meta){
   int inxd ;
   int32_t slot, indx ;
   vdir_entry *ventry ;
   char *error = "unknown" ;
 
-  *wa = 0 ;
+  *wa = 0 ;           // precondition for failure
   *rl = 0 ;
   *meta = NULL ;
   if( ! (slot = RSF_Valid_file(fp)) ) {
@@ -236,10 +252,10 @@ int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint64_t *rl
   }
 
   ventry = fp->vdir[indx] ;
-  *wa = RSF_32_to_64(ventry->wa) ;
-  *rl = RSF_32_to_64(ventry->rl) ;
-  *meta = &(ventry->meta[0]) ;
-  return DIR_ML(ventry->ml) ;    // return directory metadata length
+  *wa = RSF_32_to_64(ventry->wa) ;   // file address
+  *rl = RSF_32_to_64(ventry->rl) ;   // record length
+  *meta = &(ventry->meta[0]) ;       // pointer to metadata
+  return DIR_ML(ventry->ml) ;        // return directory metadata length
 
 ERROR :
   fprintf(stderr,"RSF_Get_vdir_entry ERROR : %s\n", error) ;
@@ -252,7 +268,7 @@ ERROR :
 // return an invalid key if no match is found
 // criteria, mask are 32 bit arrays
 // lcrit is the length of both criteria and mask arrays
-// return key for record
+// return key for record, -1 in case of error, key pointing one beyond last record if no match is found
 int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *mask, uint32_t lcrit, uint64_t *wa, uint64_t *rl)
 {
   int64_t slot, key ;

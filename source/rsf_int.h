@@ -80,10 +80,10 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
 //              minimum directory metadata length (Start of segment or directory records)
 //              undefined (other records)
 //         UBC  ( 8 bits) Unused Bit Count (RL is always a multiple of 4 Bytes)
-//         DUL  ( 8 bits) Data Unit Length (1/2/4/8 bytes) (used for Endianness management)
+//         DUL  ( 8 bits) Data Unit Length (0/1/2/4/8 bytes) (used for Endianness management)
 // RT    : record type (normally 0 -> 0x80)
 // RL    : record length = RL[0] * 2**32 + RL[1] bytes (ALWAYS a multiple of 4 bytes)
-// META  : array of 32 bit items (data record metadata) (META[0] has special contents)
+// META  : array of 32 bit items (data record metadata) (META[0] has special contents and meaning)
 // DATA  : sequence of 8/16/32/64 bit items
 //
 // some part of the PAYLOAD may be "virtual" (uses address space but without anything written)
