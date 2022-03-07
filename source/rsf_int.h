@@ -242,6 +242,7 @@ typedef struct{           // start of segment record, matched by a corresponding
   unsigned char sig1[8] ; // RSF marker + application marker ('RSF0cccc) where cccc is 4 character application signature
   uint32_t sign ;         // 0xDEADBEEF hex signature for start_of_segment
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes) (excluding EOS record)
+                          // seg = 0 for a sparse segment
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of segment size (bytes) (including EOS record)
   uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
   uint32_t vdirs[2] ;     // upper[0], lower[1] 32 bits of variable directory record size (bytes)
@@ -270,6 +271,7 @@ typedef struct{           // head part of end_of_segment record (low address in 
 typedef struct{           // tail part of end_of_segment record (high address in file)
   uint32_t sign ;         // 0xCAFEFADE hex signature for end_of_segment_hi
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes)
+                          // seg = 0 for a sparse segment
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of sparse segment size (bytes) (0 if not sparse file)
   uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
   uint32_t vdirs[2] ;     // upper[0], lower[1] 32 bits of variable directory record size (bytes)
@@ -339,6 +341,11 @@ typedef struct{              // directory record to be written to file
 } disk_vdir ;
 #define DISK_VDIR_BASE_SIZE  ( sizeof(disk_vdir) + sizeof(end_of_record) )
 
+typedef struct{
+  uint64_t base ;
+  uint64_t size ;
+} sparse_entry ;
+
 typedef void * pointer ;
 
 typedef struct RSF_File RSF_File ;
@@ -354,9 +361,9 @@ struct RSF_File{                 // internal (in memory) structure for access to
   RSF_File *next ;               // pointer to next file if "linked" (NULL if not linked)
   char *name ;                   // file name (canonicalized absolute path name)
   RSF_Match_fn *matchfn ;        // pointer to metadata matching function
-//   dir_page **pagetable ;         // directory page table (pointers to directory pages for this file)
   directory_block *dirblocks ;   // first "block" of directory data
   vdir_entry **vdir ;            // pointer to table of vdir_entry pointers (reallocated larger if it gets too small)
+  sparse_entry *sparse_segs ;    // pointer to table of sparse segments
   uint64_t vdir_size ;           // total size of vdir entries (future size of directory record in file)
   uint64_t seg_base ;            // base address in file of the current active segment (0 if only one segment)
   uint64_t file_wa0 ;            // file address origin (normally 0) (used for file within file access)
@@ -364,6 +371,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   start_of_segment sos1 ;        // start of segment of active (new) (compact or sparse) segment
   end_of_segment eos1 ;          // end of segment of active (compact or sparse) segment
   uint64_t seg_max ;             // maximum address allowable in segment (0 means no limit) (ssegl if sparse file)
+  uint64_t seg_max_hint ;        // desired maximum address allowable in segment
   off_t    size ;                // file size
   off_t    next_write ;          // file offset from beginning of file for next write operation ( -1 if not defined)
   off_t    cur_pos ;             // current file position from beginning of file ( -1 if not defined)
@@ -372,6 +380,8 @@ struct RSF_File{                 // internal (in memory) structure for access to
   uint32_t dir_read ;            // number of entries read from file directory 
   uint32_t vdir_slots ;          // current size of vdir[] table of pointers to directory entries
   uint32_t vdir_used ;           // number of used pointers in vdir[] table
+  uint32_t sparse_used ;         // number of used entries in sparse_segments table
+  uint32_t sparse_size ;         // size of sparse_segments table
   int32_t  slot ;                // file slot number of file (-1 if invalid)
   uint32_t nwritten ;            // number of records written (useful when closing after write)
   int32_t  lock ;                // used to lock the file for thread safety
@@ -380,6 +390,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   uint16_t mode ;                // file mode (RO/RW/AP/...)
   uint8_t isnew ;                // new segment indicator
   uint8_t last_op ;              // last operation (1 = read) (2 = write) (0 = unknown/invalid)
+  uint8_t exclusive ;            // RW in exclusive mode if 1
 } ;
 
 // NOTE : explicit_bzero not available everywhere
@@ -391,16 +402,17 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
 //   fp->next       = NULL ;
 //   fp->name       = NULL ;
   fp->matchfn    = RSF_Default_match ;
-// //   fp->pagetable  = NULL ;
 //   fp->dirblocks  = NULL ;
 //   fp->vdir  = NULL ;
+//   fp->sparse_segs  = NULL ;
 //   fp->vdir_size  = 0 ;
 //   fp->seg_base   =  0 ;
 //   fp->file_wa0   =  0 ;
 //   initialize sos0 here ( the explicit_bzero should do the job of initializing to invalid values)
 //   initialize sos1 here ( the explicit_bzero should do the job of initializing to invalid values)
 //   initialize eos1 here ( the explicit_bzero should do the job of initializing to invalid values)
-//   fp->seg_max    =  0 ;  // redundant if sos is stored
+//   fp->seg_max    =  0 ;    // redundant if sos is stored
+//   fp->seg_max_hint =  0 ;  // redundant if sos is stored
 //   fp->size       =  0 ;
   fp->next_write = -1 ;
   fp->cur_pos    = -1 ;
@@ -411,6 +423,8 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
 //   fp->dir_used   =  0 ;
 //   fp->vdir_slots  =  0 ;
 //   fp->vdir_used   =  0 ;
+//   fp->sparse_used   =  0 ;
+//   fp->sparse_size   =  0 ;
   fp->slot       = -1 ;
 //   fp->nwritten   =  0 ;
 //   fp->lock       =  0 ;
@@ -419,6 +433,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
 //   fp->mode       =  0 ;
 //   fp->isnew      =  0 ;
 //   fp->last_op    =  0 ;
+//   fp->exclusive    =  0 ;
 }
 
 // timeout is in microseconds
