@@ -78,10 +78,13 @@
     type(C_PTR) :: meta               ! pointer to integer metadata array
     type(C_PTR) :: data               ! pointer to start of integer data array
     type(C_PTR) :: eor                ! pointer to end of record descriptor (not used by Fortran)
-    integer(C_INT64_T) :: meta_size   ! metadata size in 32 bit units (max 0xFFFF)
     integer(C_INT64_T) :: data_size   ! data payload size in bytes (may remain 0 in unmanaged records)
     integer(C_INT64_T) :: max_data    ! maximum data payload size in bytes
     integer(C_INT64_T) :: rsz         ! allocated size of RSF_record
+    integer(C_INT16_T) :: dir_meta    ! directory metadata size in 32 bit units (max 0xFFFF)
+    integer(C_INT16_T) :: rec_meta    ! record metadata size in 32 bit units (max 0xFFFF)
+    integer(C_INT16_T) :: data_elem   ! length of data elements (1/2/4/8 bytes) (endianness management)
+    integer(C_INT16_T) :: reserved    ! alignment
     ! dynamic data array follows, see C struct
   end type
 
@@ -121,7 +124,7 @@ typedef struct{
   uint16_t dir_meta ;  // directory metadata size in uint32_t units
   uint16_t rec_meta ;  // record metadata size in uint32_t units
   uint16_t data_elem ; // length of data elements in d[] (1/2/4/8 bytes) (endianness management)
-  uint16_t reserved ;
+  uint16_t reserved ;  // alignment
   uint8_t  d[] ;       // dynamic data array (bytes)
 } RSF_record ;
 
@@ -227,7 +230,7 @@ interface
 
   interface
 #else
-  int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t meta_size, void *data, size_t data_size, int data_element) ;
+  int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t rec_meta, uint32_t dir_meta, void *data, size_t data_size, int data_element) ;
   int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
 #endif
 
@@ -386,7 +389,10 @@ interface
     integer(C_INT32_T) :: s
   end function RSF_Valid_record_handle
 #else
-  RSF_record *RSF_New_record(RSF_handle h, int32_t max_meta, size_t max_data, void *t, int64_t szt) ;  // create pointer to a new allocated record (C)
+  // create pointer to a new allocated record (C)
+  RSF_record *RSF_New_record(RSF_handle h, int32_t rec_meta, int32_t dir_meta, size_t max_data, void *t, int64_t szt) ;
+  int32_t RSF_Record_add_meta(RSF_record *r, uint32_t *meta, int32_t rec_meta, int32_t dir_meta, uint32_t data_elem) ;  // add metadata
+  int64_t RSF_Record_add_data(RSF_record *r, void *data, size_t data_size) ;  // add data
   void RSF_Free_record(RSF_record * r) ;                       // free the space allocated to that record
   int32_t RSF_Valid_record(RSF_record *r) ;                    // does this look like a valid record ?
   int64_t RSF_Record_free_space(RSF_record *r) ;               // space available for more data in record allocated by RSF_New_record

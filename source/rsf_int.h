@@ -335,9 +335,9 @@ typedef struct{           // directory entry (both file and memory)
 
 typedef struct{              // directory record to be written to file
   start_of_record sor ;      // start of record
-  uint32_t entries_nused ;   // number of directory entries used
+  uint32_t entries ;         // number of directory entries used
   vdir_entry entry[] ;       // open array of directory entries
-//end_of_record eor          // end of record, after last entry, at &entry[entries_nused]
+//end_of_record eor          // end of record, after last entry, at &entry[entries]
 } disk_vdir ;
 #define DISK_VDIR_BASE_SIZE  ( sizeof(disk_vdir) + sizeof(end_of_record) )
 
@@ -364,7 +364,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   directory_block *dirblocks ;   // first "block" of directory data
   vdir_entry **vdir ;            // pointer to table of vdir_entry pointers (reallocated larger if it gets too small)
   sparse_entry *sparse_segs ;    // pointer to table of sparse segments
-  uint64_t vdir_size ;           // total size of vdir entries (future size of directory record in file)
+  uint64_t vdir_size ;           // worst case of total size of vdir entries (future size of directory record in file)
   uint64_t seg_base ;            // base address in file of the current active segment (0 if only one segment)
   uint64_t file_wa0 ;            // file address origin (normally 0) (used for file within file access)
   start_of_segment sos0 ;        // start of segment of first segment (as it was read from file)
@@ -401,7 +401,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
   fp->fd         = -1 ;
 //   fp->next       = NULL ;
 //   fp->name       = NULL ;
-  fp->matchfn    = RSF_Default_match ;
+//   fp->matchfn    = RSF_Default_match ;
 //   fp->dirblocks  = NULL ;
 //   fp->vdir  = NULL ;
 //   fp->sparse_segs  = NULL ;

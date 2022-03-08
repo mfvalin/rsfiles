@@ -62,7 +62,7 @@ module rsf_mod
     integer(C_INT32_T), dimension(:), pointer :: meta
 
     ! pointer to metadata array
-    call C_F_POINTER(r%meta, meta, [r%meta_size])      ! meta_size is in 32 bit units
+    call C_F_POINTER(r%meta, meta, [r%rec_meta])      ! rec_meta is in 32 bit units
   end function RSF_Record_metadata1
 
   function RSF_Record_metadata2(rh) result (meta)   ! get pointer to metadata array from record handle
@@ -73,7 +73,7 @@ module rsf_mod
 
     call C_F_POINTER(rh%record, r)                          ! handle -> record pointer
     ! pointer to metadata array
-    call C_F_POINTER(r%meta, meta, [r%meta_size])      ! meta_size is in 32 bit units
+    call C_F_POINTER(r%meta, meta, [r%rec_meta])      ! rec_meta is in 32 bit units
   end function RSF_Record_metadata2
 
   function RSF_Record_allocsize1(r) result(s)
