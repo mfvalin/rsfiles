@@ -180,6 +180,7 @@ int the_test(int argc, char **argv){
     for(i=0 ; i<2 ; i++){
       fill_meta(meta, i, recno, my_rank) ;
       fill_data(data, 100+i, recno, my_rank) ;
+      put_slot[i] = RSF_Put_data(h1, meta, REC_META, DIR_META, data, 100+i, DT_32) ;
       recno++ ;
     }
     RSF_Close_file(h1) ;
