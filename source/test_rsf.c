@@ -90,6 +90,122 @@ int the_test(int argc, char **argv){
 
 #endif
 
+#if defined(TEST7S)
+// test7s.Abs filename ntests
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <rsf_int.h>
+#include <mpi.h>
+
+#define REC_META 6
+#define DIR_META 4
+#define MAX_DATA 3000
+#define MAX_REC 128
+
+static inline int32_t data_value(int32_t index, int32_t recno, int32_t rank){
+  return index + recno + rank ;
+}
+
+static inline int32_t meta_value(int32_t index, int32_t recno, int32_t rank){
+  return index + recno + rank ;
+}
+
+void fill_data(int32_t *data, int32_t ndata, int32_t recno, int32_t rank){
+  int32_t i;
+  for(i=0 ; i<ndata ; i++) {
+    data[i] = data_value(i, recno, rank) ;
+  }
+}
+
+void fill_meta(int32_t *meta, int32_t nmeta, int32_t recno, int32_t rank){
+  int32_t i;
+  for(i=1 ; i<nmeta ; i++) {
+    meta[i] = meta_value(i, recno, rank) ;
+  }
+}
+
+int32_t check_data(int32_t *data, int32_t ndata, int32_t recno, int32_t rank){
+  int32_t i;
+  int32_t errors = 0 ;
+  for(i=0 ; i<ndata ; i++) {
+    if( data[i] != data_value(i, recno, rank) ) errors++ ;
+  }
+  return errors ;
+}
+
+int32_t check_meta(int32_t *meta, int32_t nmeta, int32_t recno, int32_t rank){
+  int32_t i;
+  int32_t errors = 0 ;
+  for(i=1 ; i<nmeta ; i++) {
+    if( meta[i] != meta_value(i, recno, rank) ) errors++ ;
+  }
+  return errors ;
+}
+
+int the_test(int argc, char **argv){
+  int my_rank, nprocs ;
+  int ntests = 999 ;
+  int creator = 0 ;
+  int32_t meta_dim = DIR_META ;
+  int32_t data[MAX_DATA] ;
+  uint32_t meta[REC_META] ;
+  int64_t put_slot[MAX_REC] ;
+  int64_t segsize = 0 ;
+  RSF_handle h1 ;
+  int32_t recno = 0 ;
+  int32_t i ;
+
+  MPI_Init(&argc, &argv) ;
+  MPI_Comm_rank(MPI_COMM_WORLD, &my_rank) ;
+  MPI_Comm_size(MPI_COMM_WORLD, &nprocs) ;
+  if(argc < 2) goto ERROR ;
+  if(argc >= 3) {
+    ntests = atoi(argv[2]) ;
+  }
+  if(argc >= 4) {
+    creator = atoi(argv[3]) ;
+  }
+  fprintf(stderr,"=============== phase 1 ===============\n") ;
+  fprintf(stderr,"PE %d of %d, pid = %d, ntests = %d, creator = %d\n", my_rank+1, nprocs, getpid(), ntests, creator) ;
+
+  MPI_Barrier(MPI_COMM_WORLD) ;
+
+  if(my_rank == creator){
+    h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);  // open segmented file in exclusive mode
+    for(i=0 ; i<2 ; i++){
+      fill_meta(meta, i, recno, my_rank) ;
+      fill_data(data, 100+i, recno, my_rank) ;
+      recno++ ;
+    }
+    RSF_Close_file(h1) ;
+  }
+  MPI_Barrier(MPI_COMM_WORLD) ;
+  if(ntests <= 1) goto END ;
+  fprintf(stderr,"=============== phase 2 ===============\n") ;
+
+  segsize = 1024 * 1024 ;
+  h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);  // open segmented file in parallel mode
+  sleep(1) ;
+  RSF_Close_file(h1) ;
+
+  MPI_Barrier(MPI_COMM_WORLD) ;
+  if(ntests <= 2) goto END ;
+  fprintf(stderr,"=============== phase 3 ===============\n") ;
+
+END :
+  MPI_Finalize() ;
+  return(0) ;
+ERROR :
+  if(my_rank == 0) fprintf(stderr,"usage : %s rsf_file\n", argv[0]) ;
+  goto END ;
+}
+#endif
+
 #if defined(TEST7)
 
 #include <rsf_int.h>
