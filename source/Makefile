@@ -1,6 +1,12 @@
-CC = gcc
+# make CC=mpicc TESTC=test7
+# make TESTC=rsf_dump
+# rm -f demo0.rsf tagada.txt  ; r.mpich_run ./test7.exe demo0.rsf icc.txt -- -n 2
+# r.mpich_run ./test7s.exe  tagada.txt 12 -- -n 3
+
+
+CC = mpicc
 CFLAGS =
-FC = gfortran
+FC = mpif90
 FCFLAGS =
 
 TESTC := test1

@@ -328,8 +328,8 @@ int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *
     scan_match = &RSF_Default_match ;       // no function associated, use default function
 
   for( ; index < fp->vdir_used ; index++ ){ // loop over records in directory starting from requested position
-    if(lcrit == 0) goto MATCH ;             // no criteria specified, everything matches
     ventry = fp->vdir[index] ;              // get entry
+    if(lcrit == 0) goto MATCH ;             // no criteria specified, everything matches
     meta = ventry->meta ;                   // entry metadata
     // the first element of meta, mask, criteria will be processed here, and not sent to matching function
     if( (rt0 != 0) && ( rt0 != (meta[0] & 0xFF) ) )      continue ;   // record type mismatch
@@ -537,7 +537,6 @@ fprintf(stderr,", dir_read = %d, vdir_used = %d\n", fp->dir_read, fp->vdir_used)
     dir_rec_size = 0 ;                              // error, return 0 as directory size
   }
 
-END:
   if(p) free(p) ;
   return dir_rec_size ;
 }
@@ -816,6 +815,7 @@ uint64_t RSF_Put_empty_record(RSF_handle h, size_t record_size){
   end_of_record   eor = EOR ;      // end of data record
   uint64_t needed ;
   int64_t free_space ;
+  ssize_t nc ;
 
   if( ! RSF_Valid_file(fp) ) return 0 ;
 
@@ -834,9 +834,9 @@ uint64_t RSF_Put_empty_record(RSF_handle h, size_t record_size){
   eor.rt = RT_NULL ;
   RSF_64_to_32(eor.rl, needed) ;
   lseek(fp->fd, fp->next_write, SEEK_SET) ;
-  write(fp->fd, &sor, sizeof(start_of_record)) ;
+  nc = write(fp->fd, &sor, sizeof(start_of_record)) ;
   lseek(fp->fd, record_size, SEEK_CUR) ;
-  write(fp->fd, &eor, sizeof(end_of_record)) ;
+  nc = write(fp->fd, &eor, sizeof(end_of_record)) ;
   fp->next_write += needed ;
   return(needed) ;
 }
@@ -1009,7 +1009,7 @@ int64_t RSF_Get_file(RSF_handle h, int64_t key, char *alias, uint32_t **meta, ui
 
   offset = wa ;
   lseek(fp->fd, offset, SEEK_SET) ;                               // position at start of record
-  read(fp->fd, &sor, sizeof(start_of_record)) ;                   // read start of record
+  nc = read(fp->fd, &sor, sizeof(start_of_record)) ;              // read start of record
 //   fprintf(stderr,"RSF_Get_file DEBUG : rlm = %d\n", sor.rlm);
   lseek(fp->fd, sor.rlm * sizeof(uint32_t), SEEK_CUR) ;           // skip metadata
   nread = 0 ; nwritten = 0 ;
@@ -1084,7 +1084,7 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
   fd = open(filename, O_RDONLY) ;
 // fprintf(stderr,"RSF_Put_file DEBUG : file = '%s', fd = %d\n", filename, fd) ;
   if(fd < 0) goto ERROR ;
-  file_size0 = lseek(fd, file_size2, SEEK_END) ;   // get file size
+  file_size0 = lseek(fd, 0L, SEEK_END) ;           // get file size
 //   file_size2 = ((file_size0 + 3) & (~0x3)) ;
   file_size2 = RSF_Round_size(file_size0) ;        // file size rounded up to a multiple of 4
   unused = file_size2 - file_size0 ;               // number of unused bytes
@@ -1159,7 +1159,7 @@ fprintf(stderr,"RSF_Put_file DEBUG : name = '%s', size = %ld(%ld), vdir_meta = %
     nc = read(fd, copy_buf, sizeof(copy_buf) );
   }
   if(nwritten < file_size2){
-    write(fp->fd, copy_buf, file_size2 - nwritten) ;  // pad
+    nc = write(fp->fd, copy_buf, file_size2 - nwritten) ;  // pad
 fprintf(stderr,"RSF_Put_file DEBUG : read %ld bytes, wrote %ld bytes, padded with %ld bytes\n", nread, nwritten, file_size2 - nwritten) ;
   }
 
@@ -1350,13 +1350,13 @@ fprintf(stderr, ", initial compact segment created\n");
     sos2.head.rlm = 0 ;
     sos2.head.rlmd = DIR_ML(meta_dim) ;
     sos2.tail.rlm = 0 ;
-    write(fp->fd, &sos2, sizeof(start_of_segment)) ;
+    nc = write(fp->fd, &sos2, sizeof(start_of_segment)) ;
     // build EOS for empty dummy compact segment
 //     eos2.h.meta_dim = meta_dim ;
     RSF_64_to_32(eos2.h.seg, sizeof(start_of_segment)) ;
     RSF_64_to_32(eos2.h.sseg, sizeof(start_of_segment) + sizeof(end_of_segment)) ;
 //     RSF_64_to_32(eos2.h.sseg, 0L) ;
-    write(fp->fd, &eos2, sizeof(end_of_segment)) ;
+    nc = write(fp->fd, &eos2, sizeof(end_of_segment)) ;
     // rewind and read start of segment
     lseek(fp->fd, start, SEEK_SET) ;                             // rewind file
     nc = read(fp->fd, &sos0, sizeof(start_of_segment)) ;         // read first start of segment into sos0
@@ -2045,10 +2045,12 @@ void RSF_Dump(char *name, int verbose){
   offset = 0 ;
   rec_offset = offset ;  // current position
   seg_offset = 0 ;
+  dir_seg_offset = 0 ;
   nc = read(fd, &sor, sizeof(sor)) ;
   seg_bot = 0 ;
   seg_top = 0 ;
   seg_dir = 0 ;
+  seg_vdir = 0 ;
   while(nc > 0) {
     reclen = RSF_32_to_64(sor.rl) ;
     datalen = reclen - sizeof(sor) - sizeof(eor) ;
