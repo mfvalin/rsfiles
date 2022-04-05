@@ -180,7 +180,7 @@ int the_test(int argc, char **argv){
     for(i=0 ; i<2 ; i++){
       fill_meta(meta, i, recno, my_rank) ;
       fill_data(data, 100+i, recno, my_rank) ;
-      put_slot[i] = RSF_Put_data(h1, meta, REC_META, DIR_META, data, 100+i, DT_32) ;
+      put_slot[i] = RSF_Put_bytes(h1, NULL, meta, REC_META, DIR_META, data, 100+i, DT_32) ;
       recno++ ;
     }
     RSF_Close_file(h1) ;
@@ -257,8 +257,8 @@ int the_test(int argc, char **argv){
     if(my_rank == nprocs -1){    // last PE
       if(i == NREC/2){
         free_space1 = RSF_Available_space(h1) - 32 ;
-        status = RSF_Put_empty_record(h1, free_space1) ;
-        fprintf(stderr,"DEBUG: %s empty record of size %ld\n", status ? "wrote" : "failed to write", free_space1) ;
+        status = RSF_Put_null_record(h1, free_space1) ;
+        fprintf(stderr,"DEBUG: %s null record of size %ld\n", status ? "wrote" : "failed to write", free_space1) ;
       }
     }
     meta[0] = (( (i & 0x3) + 8) & 0xFF) | (1 << ((i & 0x3) + 8)) ;
@@ -278,7 +278,7 @@ int the_test(int argc, char **argv){
       data[j] = j+i ;
     }
     // metadata in vdir shorter by 1 than metadata in record
-    put_slot[i] = RSF_Put_data(h1, meta, META_SIZE, (META_SIZE-1), data, data_size, DT_32) ;
+    put_slot[i] = RSF_Put_bytes(h1, NULL, meta, META_SIZE, (META_SIZE-1), data, data_size, DT_32) ;
     // fprintf(stderr,"PUT %p\n",h1.p);
     if(i == 3) {
       meta0 = meta[0] ;
@@ -288,16 +288,16 @@ int the_test(int argc, char **argv){
         fprintf(stderr,"DEBUG: adding file '%s', slot = %lx\n", argv[2], file_slot[i]) ;
       }
       meta[0] = meta0 ;
-      status = RSF_Put_empty_record(h1, 1000l) ;
-      fprintf(stderr,"DEBUG: %s empty record of size %ld\n", status ? "wrote" : "failed to write", 1000l) ;
+      status = RSF_Put_null_record(h1, 1000l) ;
+      fprintf(stderr,"DEBUG: %s null record of size %ld\n", status ? "wrote" : "failed to write", 1000l) ;
     }
     if(i == 5) {
       if(argc > 2) {
         fprintf(stderr,"DEBUG: retrieving file '%s', slot = %lx\n", argv[2], file_slot[3]) ;
         slot2 = RSF_Get_file(h1, file_slot[3], "tagada.txt", &metaf, &fmeta_size) ;
         fprintf(stderr,"DEBUG: slot read/written = %lx/%lx,  %s\n",file_slot[3], slot2, (file_slot[3] == slot2) ? "SUCCESS" : "ERROR") ;
-        status = RSF_Put_empty_record(h1, 2000l) ;
-        fprintf(stderr,"DEBUG: %s empty record of size %ld\n", status ? "wrote" : "failed to write", 2000l) ;
+        status = RSF_Put_null_record(h1, 2000l) ;
+        fprintf(stderr,"DEBUG: %s null record of size %ld\n", status ? "wrote" : "failed to write", 2000l) ;
       }
     }
   }
@@ -439,7 +439,7 @@ int the_test(int argc, char **argv){
         data[j] = j+i0 ;
       }
 //       fprintf(stderr," : %9x %9x %9x\n",data[0], data[ndata/2], data[ndata-1]);
-      RSF_Put_data(h, meta, data, data_size) ; i0++ ;
+      RSF_Put_bytes(h, meta, data, data_size) ; i0++ ;
     }
     fprintf(stderr,"%s created\n",names[k]) ;
     RSF_Dump_dir(h) ;
@@ -474,7 +474,7 @@ int the_test(int argc, char **argv){
     for(j=0 ; j < ndata    ; j++) {
       data[j] = j+i0 ;
     }
-    RSF_Put_data(h, meta, data, data_size) ; fprintf(stderr,"PUT %p\n",h.p);
+    RSF_Put_bytes(h, meta, data, data_size) ; fprintf(stderr,"PUT %p\n",h.p);
     i0++ ;
   }
 RSF_Dump("demo0.rsf", 0) ;
@@ -588,8 +588,8 @@ int the_test(int argc, char **argv){
       for(j=0 ; j < ndata    ; j++) {
         data[j] = j+i0 ;
       }
-      RSF_Put_data(h, meta, data, data_size) ; i0++ ;
-  //     s = RSF_Put_data(h, meta, data, data_size) ;
+      RSF_Put_bytes(h, meta, data, data_size) ; i0++ ;
+  //     s = RSF_Put_bytes(h, meta, data, data_size) ;
   //     fprintf(stderr,"slot = %16.16lx\n", s);
     }
     RSF_Dump_dir(h) ;
@@ -623,7 +623,7 @@ exit(0) ;
     for(j=0 ; j < ndata    ; j++) {
       data[j] = j+i0 ;
     }
-    RSF_Put_data(h, meta, data, data_size) ; i0++ ;
+    RSF_Put_bytes(h, meta, data, data_size) ; i0++ ;
   }
   fprintf(stderr,"=========== dump memory directory test ===========\n") ;
   RSF_Dump_dir(h) ;

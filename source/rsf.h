@@ -207,16 +207,17 @@ interface
   end interface
 
   interface RSF_Put   ! generic put interface
-  function RSF_Put_data(handle, meta, meta_size, data, data_size) result(key) bind(C,name='RSF_Put_data')
-    import :: RSF_handle, C_INT32_T, C_PTR, C_SIZE_T, C_INT64_T
+  function RSF_Put_bytes(handle, record, meta, meta_size, data, data_size) result(key) bind(C,name='RSF_Put_data')
+    import :: RSF_handle, RSF_record, C_INT32_T, C_PTR, C_SIZE_T, C_INT64_T
     implicit none
     type(RSF_handle), intent(IN), value :: handle
+    type(RSF_record), intent(IN) :: record                 ! C expects a pointer to RAF record
     integer(C_INT32_T), intent(IN), dimension(*) :: meta
     type(C_PTR), value :: data
     integer(C_INT32_T), intent(IN), value :: meta_size
     integer(C_SIZE_T), intent(IN), value :: data_size
     integer(C_INT64_T) :: key
-  end function RSF_Put_data
+  end function RSF_Put_bytes
 
   function RSF_Put_record(handle, r, data_size) result(key) bind(C,name='RSF_Put_record')
     import :: RSF_handle, C_INT64_T, C_SIZE_T, RSF_record
@@ -230,7 +231,7 @@ interface
 
   interface
 #else
-  int64_t RSF_Put_data(RSF_handle h, uint32_t *meta, uint32_t rec_meta, uint32_t dir_meta, void *data, size_t data_size, int data_element) ;
+  int64_t RSF_Put_bytes(RSF_handle h, RSF_record *record, uint32_t *meta, uint32_t rec_meta, uint32_t dir_meta, void *data, size_t data_size, int data_element) ;
   int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
 #endif
 
@@ -408,7 +409,7 @@ interface
 #else
 int64_t RSF_Used_space(RSF_handle h) ;
 int64_t RSF_Available_space(RSF_handle h) ;
-uint64_t RSF_Put_empty_record(RSF_handle h, size_t record_size) ;
+uint64_t RSF_Put_null_record(RSF_handle h, size_t record_size) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
