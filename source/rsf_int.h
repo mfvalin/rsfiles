@@ -456,10 +456,13 @@ static inline uint32_t RSF_Unlock(RSF_File *fp, uint32_t id){
 
 // round sizes up to a multiple of 4
 static inline uint64_t RSF_Round_size(size_t data_size){
-  if(data_size & 0x3l) {    // not a multiple of 4
-    data_size |= 0x3l ;     // round up to a multiple of 4
-    data_size++ ;
-  }
+  data_size += 3 ;
+  data_size >>= 2 ;
+  data_size <<= 2 ;
+//   if(data_size & 0x3L) {    // not a multiple of 4
+//     data_size |= 0x3L ;     // round up to a multiple of 4
+//     data_size++ ;
+//   }
   return data_size ;
 }
 
@@ -472,7 +475,7 @@ static inline uint64_t RSF_Record_size(uint32_t rec_meta, size_t data_size){
 
   record_size = sizeof(start_of_record) +             // sor
                 sizeof(uint32_t) * rec_meta +         // record metadata
-                data_size +                           // data
+                RSF_Round_size(data_size) +           // data
                 sizeof(end_of_record) ;               // eor
   record_size = RSF_Round_size(record_size) ;         // rounded up size
   return record_size ;

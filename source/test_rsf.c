@@ -115,7 +115,7 @@ static inline int32_t meta_value(int32_t index, int32_t recno, int32_t rank){
   return index + recno + rank ;
 }
 
-void fill_data(int32_t *data, int32_t ndata, int32_t recno, int32_t rank){
+void fill_data(int32_t *data, int64_t ndata, int32_t recno, int32_t rank){
   int32_t i;
   for(i=0 ; i<ndata ; i++) {
     data[i] = data_value(i, recno, rank) ;
@@ -156,9 +156,11 @@ int the_test(int argc, char **argv){
   uint32_t meta[REC_META] ;
   int64_t put_slot[MAX_REC] ;
   int64_t segsize = 0 ;
+  int64_t ndata, max_bytes ;
   RSF_handle h1 ;
   int32_t recno = 0 ;
-  int32_t i ;
+  int32_t i, j ;
+  RSF_record *record = NULL ;
 
   MPI_Init(&argc, &argv) ;
   MPI_Comm_rank(MPI_COMM_WORLD, &my_rank) ;
@@ -176,22 +178,45 @@ int the_test(int argc, char **argv){
   MPI_Barrier(MPI_COMM_WORLD) ;
 
   if(my_rank == creator){
+//     segsize = 1024 * 1024 ;
+    segsize = 0 ;
     h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);  // open segmented file in exclusive mode
-    for(i=0 ; i<2 ; i++){
-      fill_meta(meta, i, recno, my_rank) ;
-      fill_data(data, 100+i, recno, my_rank) ;
-      put_slot[i] = RSF_Put_bytes(h1, NULL, meta, REC_META, DIR_META, data, 100+i, DT_32) ;
+    for(i=0 ; i<5 ; i++){
+      ndata = 100 + i ;
+      if(record != NULL) RSF_Free_record(record) ;
+      max_bytes = (i & 0x3) + ndata * sizeof(int32_t) ;
+      record = RSF_New_record(h1, REC_META, DIR_META, max_bytes, NULL, max_bytes) ;
+      fprintf(stderr,"record allocated at %16.16p \n", record);
+      meta[0] = (8 + i) | (1 << 8) ;                 // class 1 records
+      fill_meta(meta, REC_META, recno, my_rank) ;
+      fill_data(data, ndata, recno, my_rank) ;
+      put_slot[i] = RSF_Put_bytes(h1, NULL, meta, REC_META, DIR_META, data, (i & 0x3) + ndata * sizeof(int32_t), DT_32) ;
+      fprintf(stderr," recno = %d, slot = %ld [", recno, put_slot[i]) ;
+      for(j=0 ; j<REC_META ; j++) fprintf(stderr," %8.8x", meta[j]) ;
+      fprintf(stderr,"]\n") ;
       recno++ ;
     }
+    if(record != NULL) RSF_Free_record(record) ;
     RSF_Close_file(h1) ;
   }
   MPI_Barrier(MPI_COMM_WORLD) ;
   if(ntests <= 1) goto END ;
-  fprintf(stderr,"=============== phase 2 ===============\n") ;
+  MPI_Bcast(&recno, 1, MPI_INTEGER, creator, MPI_COMM_WORLD) ;
+  fprintf(stderr,"=============== phase 2 (%d) ===============\n", recno) ;
 
   segsize = 1024 * 1024 ;
   h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);  // open segmented file in parallel mode
   sleep(1) ;
+  for(i=0 ; i<1 ; i++){
+      meta[0] = RT_DATA | (1 << (8 + my_rank)) ;                 // class 2**my_rank records
+      fill_meta(meta, REC_META, recno, my_rank) ;
+      fill_data(data, 100+i, recno, my_rank) ;
+      put_slot[i] = RSF_Put_bytes(h1, NULL, meta, REC_META, DIR_META, data, 100L+i, DT_32) ;
+      fprintf(stderr," recno = %d, slot = %ld [", recno, put_slot[i]) ;
+      for(j=0 ; j<REC_META ; j++) fprintf(stderr," %8.8x", meta[j]) ;
+      fprintf(stderr,"]\n") ;
+      recno++ ;
+  }
   RSF_Close_file(h1) ;
 
   MPI_Barrier(MPI_COMM_WORLD) ;

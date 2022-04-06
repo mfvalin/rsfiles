@@ -207,7 +207,19 @@ interface
   end interface
 
   interface RSF_Put   ! generic put interface
-  function RSF_Put_bytes(handle, record, meta, meta_size, data, data_size) result(key) bind(C,name='RSF_Put_data')
+  function RSF_Put_bytes(handle, record, meta, meta_size, data, data_bytes) result(key) bind(C,name='RSF_Put_bytes')
+    import :: RSF_handle, RSF_record, C_INT32_T, C_PTR, C_SIZE_T, C_INT64_T
+    implicit none
+    type(RSF_handle), intent(IN), value :: handle
+    type(RSF_record), intent(IN) :: record                 ! C expects a pointer to RAF record
+    integer(C_INT32_T), intent(IN), dimension(*) :: meta
+    type(C_PTR), value :: data
+    integer(C_INT32_T), intent(IN), value :: meta_size
+    integer(C_SIZE_T), intent(IN), value :: data_bytes
+    integer(C_INT64_T) :: key
+  end function RSF_Put_bytes
+
+  function RSF_Put_data(handle, record, meta, meta_size, data, data_size, element_size) result(key) bind(C,name='RSF_Put_data')
     import :: RSF_handle, RSF_record, C_INT32_T, C_PTR, C_SIZE_T, C_INT64_T
     implicit none
     type(RSF_handle), intent(IN), value :: handle
@@ -216,8 +228,9 @@ interface
     type(C_PTR), value :: data
     integer(C_INT32_T), intent(IN), value :: meta_size
     integer(C_SIZE_T), intent(IN), value :: data_size
+    integer, intent(IN), value :: element_size
     integer(C_INT64_T) :: key
-  end function RSF_Put_bytes
+  end function RSF_Put_data
 
   function RSF_Put_record(handle, r, data_size) result(key) bind(C,name='RSF_Put_record')
     import :: RSF_handle, C_INT64_T, C_SIZE_T, RSF_record
@@ -232,6 +245,7 @@ interface
   interface
 #else
   int64_t RSF_Put_bytes(RSF_handle h, RSF_record *record, uint32_t *meta, uint32_t rec_meta, uint32_t dir_meta, void *data, size_t data_size, int data_element) ;
+  int64_t RSF_Put_data(RSF_handle h, void *data_record, uint32_t *meta, uint32_t rec_meta, uint32_t dir_meta, void *data, size_t data_elements, int element_size) ;
   int64_t RSF_Put_record(RSF_handle h, RSF_record *record, size_t data_size) ;
 #endif
 
@@ -393,7 +407,8 @@ interface
   // create pointer to a new allocated record (C)
   RSF_record *RSF_New_record(RSF_handle h, int32_t rec_meta, int32_t dir_meta, size_t max_data, void *t, int64_t szt) ;
   int32_t RSF_Record_add_meta(RSF_record *r, uint32_t *meta, int32_t rec_meta, int32_t dir_meta, uint32_t data_elem) ;  // add metadata
-  int64_t RSF_Record_add_data(RSF_record *r, void *data, size_t data_size) ;  // add data
+  int64_t RSF_Record_add_bytes(RSF_record *r, void *data, size_t data_size) ;  // add data bytes
+  int64_t RSF_Record_add_data(RSF_record *r, void *data, size_t data_elements, int data_element_size) ; // add data elements
   void RSF_Free_record(RSF_record * r) ;                       // free the space allocated to that record
   int32_t RSF_Valid_record(RSF_record *r) ;                    // does this look like a valid record ?
   int64_t RSF_Record_free_space(RSF_record *r) ;               // space available for more data in record allocated by RSF_New_record
