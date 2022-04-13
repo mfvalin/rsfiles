@@ -308,8 +308,17 @@ typedef struct{           // compact end of segment (non sparse file)
 // pointer for entry associated with record N will be found in RSF_file->vdir[N]
 // if array RSF_file->vdir is too small, it is reallocated in increments of DIR_SLOTS_INCREMENT
 typedef struct directory_block directory_block ;
+
+#if defined(DEBUG)
 #define DIR_BLOCK_SIZE 512
 #define DIR_SLOTS_INCREMENT 8
+static int32_t debug = DEBUG ;
+#else
+#define DIR_BLOCK_SIZE 131072
+#define DIR_SLOTS_INCREMENT 512
+static int32_t debug = 0 ;
+#endif
+
 struct directory_block{
   directory_block *next ;
   uint8_t *cur ;
@@ -330,6 +339,7 @@ typedef struct{           // directory entry (both file and memory)
   uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment (or file)
   uint32_t rl[2] ;        // upper[0], lower[1] 32 bits of record length (bytes)
   uint32_t ml ;           // upper 16 bits directory metadata length, lower 16 record metadata length
+  uint32_t dul ;          // data element length
   uint32_t meta[] ;       // open array for metadata
 } vdir_entry ;
 

@@ -1,7 +1,7 @@
 # make CC=mpicc TESTC=test7
 # make TESTC=rsf_dump
 # rm -f demo0.rsf tagada.txt  ; r.mpich_run ./test7.exe demo0.rsf icc.txt -- -n 2
-# r.mpich_run ./test7s.exe  tagada.txt 12 -- -n 3
+# rm -f demo7.rsf ; r.mpich_run ./test7s.exe  demo7.rsf 12 -- -n 3
 
 
 CC = mpicc

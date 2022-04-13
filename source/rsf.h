@@ -88,6 +88,18 @@
     ! dynamic data array follows, see C struct
   end type
 
+  type, BIND(C) :: RSF_record_info    ! not a totally honest description
+    private                           ! MUST REFLECT EXACTLY C struct RSF_record (see below)
+    integer(C_INT64_T) wa ;           ! address of record in file
+    integer(C_INT64_T) rl ;           ! record length
+    integer(C_INT64_T) wa_data ;      ! address of data in file
+    integer(C_INT64_T) data_size ;    ! actual data size in bytes (may remain 0 in unmanaged records)
+    integer(C_INT64_T) wa_meta ;      ! address of metadata in file
+    integer(C_INT16_T) dir_meta ;     ! directory metadata size in uint32_t units
+    integer(C_INT16_T) rec_meta ;     ! record metadata size in uint32_t units
+    integer(C_INT16_T) data_elem ;    ! length of data elements (1/2/4/8 bytes) (endianness management)
+  end type
+
   type, BIND(C) :: RSF_record_handle
     private
     type(C_PTR) :: record      ! pointer to RSF_record (see above)
@@ -127,6 +139,17 @@ typedef struct{
   uint16_t reserved ;  // alignment
   uint8_t  d[] ;       // dynamic data array (bytes)
 } RSF_record ;
+
+typedef struct{
+  uint64_t wa ;        // address of record in file
+  uint64_t rl ;        // record length
+  uint64_t wa_data ;   // address of data in file
+  uint64_t data_size ; // actual data size in bytes (may remain 0 in unmanaged records)
+  uint64_t wa_meta ;   // address of metadata in file
+  uint16_t dir_meta ;  // directory metadata size in uint32_t units
+  uint16_t rec_meta ;  // record metadata size in uint32_t units
+  uint16_t data_elem ; // length of data elements (1/2/4/8 bytes) (endianness management)
+} RSF_record_info ;
 
 // typedef struct{   // this struct only contains a pointer to the actual composite record
 //   void *p ;
@@ -200,6 +223,7 @@ interface
     type(RSF_record_handle) :: rh
   end function RSF_Get_record
 #else
+  RSF_record_info RSF_Get_record_info(RSF_handle h, int64_t key) ;
   RSF_record *RSF_Get_record(RSF_handle h, int64_t key) ;
 #endif
 

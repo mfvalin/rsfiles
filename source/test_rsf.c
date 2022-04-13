@@ -152,15 +152,19 @@ int the_test(int argc, char **argv){
   int ntests = 999 ;
   int creator = 0 ;
   int32_t meta_dim = DIR_META ;
+  int32_t meta_rdim = 0 ;
   int32_t data[MAX_DATA] ;
   uint32_t meta[REC_META] ;
   int64_t put_slot[MAX_REC] ;
   int64_t segsize = 0 ;
   int64_t ndata, max_bytes ;
+  int64_t key ;
+  uint64_t wa, rl ;
   RSF_handle h1 ;
   int32_t recno = 0 ;
   int32_t i, j ;
   RSF_record *record = NULL ;
+  RSF_record_info ri ;
 
   MPI_Init(&argc, &argv) ;
   MPI_Comm_rank(MPI_COMM_WORLD, &my_rank) ;
@@ -197,12 +201,31 @@ int the_test(int argc, char **argv){
       recno++ ;
     }
     if(record != NULL) RSF_Free_record(record) ;
+    for(i=0 ; i<recno ; i++){
+      ri = RSF_Get_record_info(h1, put_slot[i]) ;
+      fprintf(stderr," record %d : wa = %8.8ld, rl = %ld, dl = %ld, rec_meta = %d, dir_meta = %d\n",
+              i, ri.wa, ri.rl, ri.data_size, ri.rec_meta, ri.dir_meta) ;
+    }
     RSF_Close_file(h1) ;
   }
   MPI_Barrier(MPI_COMM_WORLD) ;
   if(ntests <= 1) goto END ;
+  fprintf(stderr,"=============== phase 2 ===============\n") ;
+  if(my_rank != creator){
+    segsize = 111111 ;
+    meta_rdim = 0 ;
+    h1 = RSF_Open_file(argv[1], RSF_RO, &meta_rdim, "DeMo", &segsize);
+    fprintf(stderr," segsize = %ld, meta_dim = %d\n", segsize, meta_rdim) ;
+    key = 0 ;
+    while( (key = RSF_Lookup(h1, key, NULL, NULL, 0)) >= 0) {
+      fprintf(stderr," key = %16.16lx\n", key) ;
+    }
+    fprintf(stderr," end key = %16.16lx\n", key) ;
+    RSF_Close_file(h1) ;
+  }
+  if(ntests <= 2) goto END ;
   MPI_Bcast(&recno, 1, MPI_INTEGER, creator, MPI_COMM_WORLD) ;
-  fprintf(stderr,"=============== phase 2 (%d) ===============\n", recno) ;
+  fprintf(stderr,"=============== phase 3 (%d) ===============\n", recno) ;
 
   segsize = 1024 * 1024 ;
   h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);  // open segmented file in parallel mode
@@ -220,8 +243,8 @@ int the_test(int argc, char **argv){
   RSF_Close_file(h1) ;
 
   MPI_Barrier(MPI_COMM_WORLD) ;
-  if(ntests <= 2) goto END ;
-  fprintf(stderr,"=============== phase 3 ===============\n") ;
+  if(ntests <= 3) goto END ;
+  fprintf(stderr,"=============== phase 4 ===============\n") ;
 
 END :
   MPI_Finalize() ;
