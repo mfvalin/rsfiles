@@ -665,7 +665,7 @@ RSF_record *RSF_New_record(RSF_handle h, int32_t rec_meta, int32_t dir_meta, siz
 
   r->rec_meta = rec_meta ;       // metadata sizes in 32 bit units (metadata filling is not tracked)
   r->dir_meta = dir_meta ;
-  r->data_elem = 0 ;                                 // unspecified data element length
+  r->elem_size = 0 ;                                 // unspecified data element length
   r->meta = (uint32_t *) (p + sizeof(start_of_record)) ;                                                // points to metadata
   bzero(r->meta, sizeof(uint32_t) * rec_meta) ;      // set metadata to 0
   r->max_data  = max_data ;                          // max data payload for this record
@@ -677,14 +677,14 @@ RSF_record *RSF_New_record(RSF_handle h, int32_t rec_meta, int32_t dir_meta, siz
 }
 
 // store metadata into record allocated by RSF_New_record
-int32_t RSF_Record_add_meta(RSF_record *r, uint32_t *meta, int32_t rec_meta, int32_t dir_meta, uint32_t data_elem){
+int32_t RSF_Record_add_meta(RSF_record *r, uint32_t *meta, int32_t rec_meta, int32_t dir_meta, uint32_t elem_size){
   int i ;
 
   if(rec_meta != r->rec_meta) return 0 ;               // inconsistemt record metadata size
   if(dir_meta > rec_meta) dir_meta = rec_meta ;        // dir_meta <= rec_meta
   r->rec_meta = rec_meta ;                             // set metadata sizes in record
   r->dir_meta = dir_meta ;
-  r->data_elem = data_elem ;                           // 1/2/4/8
+  r->elem_size = elem_size ;                           // 1/2/4/8
   for(i=0 ; i<rec_meta ; i++) r->meta[i] = meta[i] ;  // copy metadata
   return rec_meta ;
 }
@@ -1266,7 +1266,7 @@ RSF_record_info RSF_Get_record_info(RSF_handle h, int64_t key){
   key = key - 1 ;                                     // origin 0
   info.wa = RSF_32_to_64( fp->vdir[key]->wa ) ;       // record address in file
   info.rl = RSF_32_to_64( fp->vdir[key]->rl ) ;       // record size
-  info.data_elem = 0 ;
+  info.elem_size = fp->vdir[key]->dul ;
   info.wa_meta = info.wa + sizeof(start_of_record) ;  // metadata address in file
   info.rec_meta = REC_ML(fp->vdir[key]->ml) ;         // record metadata length
   info.dir_meta = DIR_ML(fp->vdir[key]->ml) ;         // directory metadata length
@@ -2139,16 +2139,22 @@ void RSF_Dump(char *name, int verbose){
   seg_top = 0 ;
   seg_dir = 0 ;
   seg_vdir = 0 ;
+  fprintf(stderr,"RSF file dump utility, file =%s\n",name);
+  fprintf(stderr,"=============================================================================================\n");
+  fprintf(stderr,"RL = raw record length (bytes), PL = payload length (DL+ML*4) (bytes)\n") ;
+  fprintf(stderr,"DL = data length (bytes), ML = record metadata length (32 bit units)\n") ;
+  fprintf(stderr,"rlmd = directory metadata length (32 bit units), rlm = same as ML (sor|eor)\n") ;
+  fprintf(stderr,"=============================================================================================\n");
   while(nc > 0) {
     reclen = RSF_32_to_64(sor.rl) ;
     datalen = reclen - sizeof(sor) - sizeof(eor) ;
 //     tabplus = ((rec_offset < seg_dir) && (rec_offset < seg_vdir)) ? 8 : 0 ;  // only effective for sos, eos, dir records
     tabplus = (rec_offset < seg_vdir) ? 8 : 0 ;  // only effective for sos, eos, dir records
     if(sor.rt > 7) {
-      snprintf(buffer,sizeof(buffer)," RT%2.2x %5d [%12.12lx], rl = %6ld(%6ld),",sor.rt,  rec, rec_offset, reclen, datalen) ;
+      snprintf(buffer,sizeof(buffer)," RT%2.2x %5d [%12.12lx], RL(PL) = %6ld(%6ld),",sor.rt,  rec, rec_offset, reclen, datalen) ;
       sor.rt = 0 ;
     }else{
-      snprintf(buffer,sizeof(buffer),"%s %5d [%12.12lx], rl = %6ld(%6ld),",tab[sor.rt+tabplus],  rec, rec_offset, reclen, datalen) ;
+      snprintf(buffer,sizeof(buffer),"%s %5d [%12.12lx], RL(PL) = %6ld(%6ld),",tab[sor.rt+tabplus],  rec, rec_offset, reclen, datalen) ;
     }
     switch(sor.rt){
       case RT_VDIR :
@@ -2189,7 +2195,7 @@ void RSF_Dump(char *name, int verbose){
         temps = RSF_32_to_64((data+nmeta-2)) ;
         lseek(fd, datalen - nc, SEEK_CUR) ;           // skip rest of record
         ndata = datalen/sizeof(int32_t) - sor.rlm;
-        fprintf(stderr,"  %s DL = %6d, ML = %2d [ %8.8x ", buffer, ndata, sor.rlm, data[0]) ;
+        fprintf(stderr,"  %s DL = %6d B, ML = %2d [ %8.8x ", buffer, ndata, sor.rlm, data[0]) ;
         for(j=1 ; j<nmeta-2 ; j++) fprintf(stderr,"%8.8x ", data[j]) ;
         fprintf(stderr,"] '%s'[%ld]", temp, temps) ;
 //         for(i=0 ; i<sor.rlm ; i++) {

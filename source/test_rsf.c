@@ -194,7 +194,11 @@ int the_test(int argc, char **argv){
       meta[0] = (8 + i) | (1 << 8) ;                 // class 1 records
       fill_meta(meta, REC_META, recno, my_rank) ;
       fill_data(data, ndata, recno, my_rank) ;
-      put_slot[i] = RSF_Put_bytes(h1, NULL, meta, REC_META, DIR_META, data, (i & 0x3) + ndata * sizeof(int32_t), DT_32) ;
+      if(i != 2){
+        put_slot[i] = RSF_Put_bytes(h1, NULL, meta, REC_META, DIR_META, data, (i & 0x3) + ndata * sizeof(int32_t), DT_32) ;
+      }else{
+        put_slot[i] = RSF_Put_file(h1, "icc.txt", meta, 2) ;
+      }
       fprintf(stderr," recno = %d, slot = %ld [", recno, put_slot[i]) ;
       for(j=0 ; j<REC_META ; j++) fprintf(stderr," %8.8x", meta[j]) ;
       fprintf(stderr,"]\n") ;
@@ -203,8 +207,8 @@ int the_test(int argc, char **argv){
     if(record != NULL) RSF_Free_record(record) ;
     for(i=0 ; i<recno ; i++){
       ri = RSF_Get_record_info(h1, put_slot[i]) ;
-      fprintf(stderr," record %d : wa = %8.8ld, rl = %ld, dl = %ld, rec_meta = %d, dir_meta = %d\n",
-              i, ri.wa, ri.rl, ri.data_size, ri.rec_meta, ri.dir_meta) ;
+      fprintf(stderr," record %d : wa = %8.8ld, rl = %8ld, dl = %8ld(%dB), rec_meta = %d, dir_meta = %d\n",
+              i, ri.wa, ri.rl, ri.data_size, ri.elem_size, ri.rec_meta, ri.dir_meta) ;
     }
     RSF_Close_file(h1) ;
   }

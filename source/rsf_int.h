@@ -339,7 +339,7 @@ typedef struct{           // directory entry (both file and memory)
   uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment (or file)
   uint32_t rl[2] ;        // upper[0], lower[1] 32 bits of record length (bytes)
   uint32_t ml ;           // upper 16 bits directory metadata length, lower 16 record metadata length
-  uint32_t dul ;          // data element length
+  uint32_t dul:8, reserved:24 ;  // data element length
   uint32_t meta[] ;       // open array for metadata
 } vdir_entry ;
 

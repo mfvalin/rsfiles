@@ -83,7 +83,7 @@
     integer(C_INT64_T) :: rsz         ! allocated size of RSF_record
     integer(C_INT16_T) :: dir_meta    ! directory metadata size in 32 bit units (max 0xFFFF)
     integer(C_INT16_T) :: rec_meta    ! record metadata size in 32 bit units (max 0xFFFF)
-    integer(C_INT16_T) :: data_elem   ! length of data elements (1/2/4/8 bytes) (endianness management)
+    integer(C_INT16_T) :: elem_size   ! length of data elements (1/2/4/8 bytes) (endianness management)
     integer(C_INT16_T) :: reserved    ! alignment
     ! dynamic data array follows, see C struct
   end type
@@ -97,7 +97,7 @@
     integer(C_INT64_T) wa_meta ;      ! address of metadata in file
     integer(C_INT16_T) dir_meta ;     ! directory metadata size in uint32_t units
     integer(C_INT16_T) rec_meta ;     ! record metadata size in uint32_t units
-    integer(C_INT16_T) data_elem ;    ! length of data elements (1/2/4/8 bytes) (endianness management)
+    integer(C_INT16_T) elem_size ;    ! length of data elements (1/2/4/8 bytes) (endianness management)
   end type
 
   type, BIND(C) :: RSF_record_handle
@@ -135,7 +135,7 @@ typedef struct{
   int64_t rsz ;        // allocated size of RSF_record
   uint16_t dir_meta ;  // directory metadata size in uint32_t units
   uint16_t rec_meta ;  // record metadata size in uint32_t units
-  uint16_t data_elem ; // length of data elements in d[] (1/2/4/8 bytes) (endianness management)
+  uint16_t elem_size ; // length of data elements in d[] (1/2/4/8 bytes) (endianness management)
   uint16_t reserved ;  // alignment
   uint8_t  d[] ;       // dynamic data array (bytes)
 } RSF_record ;
@@ -148,7 +148,7 @@ typedef struct{
   uint64_t wa_meta ;   // address of metadata in file
   uint16_t dir_meta ;  // directory metadata size in uint32_t units
   uint16_t rec_meta ;  // record metadata size in uint32_t units
-  uint16_t data_elem ; // length of data elements (1/2/4/8 bytes) (endianness management)
+  uint16_t elem_size ; // length of data elements (1/2/4/8 bytes) (endianness management)
 } RSF_record_info ;
 
 // typedef struct{   // this struct only contains a pointer to the actual composite record
