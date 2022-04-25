@@ -155,7 +155,10 @@ int the_test(int argc, char **argv){
   int32_t meta_rdim = 0 ;
   int32_t data[MAX_DATA] ;
   uint32_t meta[REC_META] ;
+  uint32_t criteria[REC_META] ;
+  uint32_t mask[DIR_META] ;
   int64_t put_slot[MAX_REC] ;
+  int32_t slot_meta[MAX_REC] ;
   int64_t segsize = 0 ;
   int64_t ndata, max_bytes ;
   int64_t key ;
@@ -195,9 +198,11 @@ int the_test(int argc, char **argv){
       fill_meta(meta, REC_META, recno, my_rank) ;
       fill_data(data, ndata, recno, my_rank) ;
       if(i != 2){
+        slot_meta[i] = DIR_META ;
         put_slot[i] = RSF_Put_bytes(h1, NULL, meta, REC_META, DIR_META, data, (i & 0x3) + ndata * sizeof(int32_t), DT_32) ;
       }else{
         put_slot[i] = RSF_Put_file(h1, "icc.txt", meta, 2) ;
+        slot_meta[i] = 2 ;
       }
       fprintf(stderr," recno = %d, slot = %ld [", recno, put_slot[i]) ;
       for(j=0 ; j<REC_META ; j++) fprintf(stderr," %8.8x", meta[j]) ;
@@ -205,10 +210,21 @@ int the_test(int argc, char **argv){
       recno++ ;
     }
     if(record != NULL) RSF_Free_record(record) ;
+    fprintf(stderr,"===      get record information      ===\n") ;
     for(i=0 ; i<recno ; i++){
       ri = RSF_Get_record_info(h1, put_slot[i]) ;
       fprintf(stderr," record %d : wa = %8.8ld, rl = %8ld, dl = %8ld(%dB), rec_meta = %d, dir_meta = %d\n",
               i, ri.wa, ri.rl, ri.data_size, ri.elem_size, ri.rec_meta, ri.dir_meta) ;
+    }
+    fprintf(stderr,"===      test record locator      ===\n") ;
+    for(i=1 ; i<DIR_META ; i++) mask[i] = 0xFFFFFFFF ;
+    mask[0] = 0 ;
+    for(i=0 ; i<recno ; i++){
+      fill_meta(criteria, REC_META, i, my_rank) ;
+      key = 0 ;
+//       for(j=0 ; j<DIR_META ; j++) fprintf(stderr," %8.8d", criteria[j]) ; fprintf(stderr,"\n") ;
+      key = RSF_Lookup(h1, key, criteria, mask, slot_meta[i]) ;
+      fprintf(stderr,"record = %d, key = %16.16lx, expected = %16.16lx\n", i, key, put_slot[i]) ;
     }
     RSF_Close_file(h1) ;
   }

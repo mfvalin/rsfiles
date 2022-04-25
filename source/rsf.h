@@ -29,7 +29,10 @@
 #define RSF_NSEG    16
 #define RSF_PSEG    32
 
-// META_RESERVED : number of metadata items reserved for internal use
+// RT_DATA_CLASS  : class for "vanilla" data records
+// RT_FILE_CLASS  : class for file container records
+
+// RSF_META_RESERVED : number of metadata items reserved for internal use
 // meta[0] : used for record class mask
 
 // DT_08 ... DT_64  : length of data elements in record (for endianness management) (1 2 4 8 bytes)

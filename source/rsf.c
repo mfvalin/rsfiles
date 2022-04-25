@@ -313,34 +313,42 @@ int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *
   }else{                                    // criteria were specified
     // mask[0] == 0 will deactivate any record type / class based selection
     mask0 = mask ? mask[0] : mask0 ;                  // set mask0 to default if mask is NULL
-    rt0      = (criteria[0] & mask0) & 0xFF ;         // low level record type match target
-    if(rt0 >= RT_DEL) rt0 = 0 ;                       // invalid record type, no selection based on rt
-    // check for valid type for a data record (RT_DATA, RT_XDAT, RT_CUSTOM->RT_DEL-1 are valid record types)
-    if(rt0 < RT_CUSTOM && rt0 != RT_DATA && rt0 != RT_XDAT) rt0 = 0 ;
-    // rt0 == 0 indicates no selection based upon record type
+
+    rt0   = (criteria[0] & mask0) & 0xFF ;            // low level record type match target
+    // check for valid type for a data record (RT_DATA, RT_XDAT, RT_FILE, RT_CUSTOM->RT_DEL-1 are valid record types)
+    // if record type is not a valid selection criterium , selection will ignore it
+    // rt0 == 0 means no selection based upon record type
+    if(rt0 >= RT_DEL || rt0 == RT_NULL || rt0 == RT_SOS || rt0 == RT_EOS || rt0 == RT_VDIR) rt0 = 0 ;
 
     class0 = criteria[0] >> 8 ;                       // get class from criteria[0] (upper 24 bits)
     if(class0 == 0) class0 = fp->rec_class ;          // if 0, use default class for file
     class0 &= (mask0 >> 8) ;                          // apply mask to get final low level record class match target
+    // class0 == 0 at this point means record class will not be used for selection
   }
 
   scan_match = fp->matchfn ;                // get metadata match function associated to this file
   if(scan_match == NULL)
     scan_match = &RSF_Default_match ;       // no function associated, use default function
 
+//   fprintf(stderr,"DEBUG: RSF_Scan_vdir\n") ;
+//   fprintf(stderr,"criteria ") ;for(i = 0 ; i < lcrit ; i++) fprintf(stderr," %8.8x", criteria[i]) ; fprintf(stderr,"\n") ;
+//   if(mask)fprintf(stderr,"mask     ") ;for(i = 0 ; i < lcrit ; i++) fprintf(stderr," %8.8x", mask[i]) ; fprintf(stderr,"\n") ;
   for( ; index < fp->vdir_used ; index++ ){ // loop over records in directory starting from requested position
     ventry = fp->vdir[index] ;              // get entry
     if(lcrit == 0) goto MATCH ;             // no criteria specified, everything matches
     meta = ventry->meta ;                   // entry metadata
+//     fprintf(stderr,"meta[%2d] ",index) ;for(i = 0 ; i < lcrit ; i++) fprintf(stderr," %8.8x", meta[i]) ; fprintf(stderr,"\n") ;
     // the first element of meta, mask, criteria will be processed here, and not sent to matching function
-    if( (rt0 != 0) && ( rt0 != (meta[0] & 0xFF) ) )      continue ;   // record type mismatch
-    class_meta = meta[0] >> 8 ;                       // get class of record from meta[0]
-    if( (class0 != 0) && ( (class0 & class_meta) == 0 ) ) continue ;   // class mismatch, 
+    if( (rt0 != 0) && ( rt0 != (meta[0] & 0xFF) ) )      continue ;    // record type mismatch
+
+    class_meta = meta[0] >> 8 ;                                        // get class of record from meta[0]
+    if( (class0 != 0) && ( (class0 & class_meta) == 0 ) ) continue ;   // class mismatch, no bit in common
+
     dir_meta = DIR_ML(ventry->ml) ;                    // length of directory metadata
-//     if(lcrit > nmeta) continue ;                 // more criteria than metadata
-//     if(nmeta > lcrit) nmeta = lcrit ;            // less criteria than metadata
-    // the first element of criteria, meta, mask (if applicable) is ignored
-    if((*scan_match)(criteria+1, meta+1, mask ? mask+1 : NULL, lcrit-1, dir_meta-1) == 1 ){   // do we have a match at position index ?
+    // more criteria than metadata or less criteria than metadata will be dealt with by the matching function
+    // the first element of criteria, meta, mask (if applicable) will be ignored
+    // dir_meta is the number of metadata elements
+    if((*scan_match)(criteria+1, meta+1, mask ? mask+1 : NULL, lcrit-1, dir_meta-1) == 1 ){   // do we have a match ?
       goto MATCH ;
     }
   }
@@ -348,14 +356,16 @@ int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *
   error = "no match found" ;
 
 ERROR :
-fprintf(stderr,"RSF_Scan_vdir ERROR : key = %16.16lx, len = %d,  %s\n", key0, lcrit, error) ;
+fprintf(stderr,"RSF_Scan_vdir ERROR : key = %16.16lx, len = %d,  %s\n\n", key0, lcrit, error) ;
   return badkey ;
 
 MATCH:
+  // upper 32 bits of key contain the file "slot" number (origin 1)
   key = key + index + 1 ;               // add record number (origin 1) to key
   *wa = RSF_32_to_64(ventry->wa) ;      // address of record in file
   *rl = RSF_32_to_64(ventry->rl) ;      // record length
-  return key ;                          // return key value containing file slot and record index
+//   fprintf(stderr,"RSF_Scan_vdir SUCCESS : key = %16.16lx\n\n", key);
+  return key ;                          // return key value containing file "slot" and record index
 }
 
 // read file directory (all segments) into memory directory
@@ -372,9 +382,7 @@ static int32_t RSF_Read_directory(RSF_File *fp){
   start_of_segment sos ;
   off_t off_seg ;
   ssize_t nc ;
-//   disk_directory *ddir = NULL ;
   disk_vdir *vdir = NULL ;
-//   disk_dir_entry *entry ;
   vdir_entry *ventry ;
   char *e ;
   int i, ml ;
@@ -554,14 +562,15 @@ fprintf(stderr,", dir_read = %d, vdir_used = %d\n", fp->dir_read, fp->vdir_used)
 // returns 0 in case of no match, 1 otherwise
 int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta)
 {
-  int i ;
+  int i, j ;
   if(ncrit > nmeta) return 0;  // too many criteria, no match
   if(ncrit <= 0) return 1 ;    // no criteria, it is a match
   if(mask != NULL) {
+//     fprintf(stderr,"criteria, meta = ["); for(j=0 ; j<ncrit ; j++) fprintf(stderr,", %8.8x %8.8x", criteria[j], meta[j]); fprintf(stderr,"]\n");
     for(i = 0 ; i < ncrit ; i++){
       if( (criteria[i] & mask[i]) != (meta[i] & mask[i]) ) {
-        fprintf(stderr,"DEBUG: rsf_default_match, MISMATCH at %d, criteria = %8.8x, meta = %8.8x, mask = %8.8x, ncrit = %d, nmeta = %d\n",
-                i, criteria[i], meta[i], mask[i], ncrit, nmeta) ;
+//         fprintf(stderr,"DEBUG: rsf_default_match, MISMATCH at %d, criteria = %8.8x, meta = %8.8x, mask = %8.8x, ncrit = %d, nmeta = %d\n",
+//                 i, criteria[i], meta[i], mask[i], ncrit, nmeta) ;
         return 0 ;  // mismatch, no need to go any further
       }
     }
@@ -571,6 +580,7 @@ int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, in
     }
   }
 //   fprintf(stderr,"DEBUG: rsf_default_match, nitems = %d, MATCH\n", nitems);
+//   fprintf(stderr,"DEBUG: rsf_default_match, MATCH O.K.\n");
   return 1 ;   // if we get here, there is a match
 }
 
@@ -1146,7 +1156,8 @@ int64_t RSF_Put_file(RSF_handle h, char *filename, uint32_t *meta, uint32_t meta
   file_meta = (uint32_t *) calloc(meta_size + extra_meta, sizeof(uint32_t)) ; // metadata for record in file
   memcpy(file_meta, meta, meta_size * sizeof(uint32_t)) ;        // copy meta[0 -> meta_size-1] into file_meta
   memcpy(file_meta + meta_size, (uint32_t *) fmeta, extra_meta * sizeof(uint32_t)) ; // copy extra metadata into file_meta
-
+// fprintf(stderr,"RSF_Put_file DEBUG : file_meta [") ;
+// for(i=0 ; i<vdir_meta + extra_meta ; i++) fprintf(stderr," %8.8x", file_meta[i]) ; fprintf(stderr,"\n") ;
   record_size = sizeof(start_of_record) + 
                 meta_size * sizeof(uint32_t) +   // file record metadata size
                 extra_meta * sizeof(uint32_t) +  // extra metadata (unrounded file size and file name)
@@ -1211,7 +1222,7 @@ fprintf(stderr,"RSF_Put_file DEBUG : read %ld bytes, wrote %ld bytes, padded wit
 
   dir_meta[0] = meta0 ;
   // directory and record metadata lengths will be identical
-  index = RSF_Add_vdir_entry(fp, dir_meta, DRML_32(0, vdir_meta + extra_meta), fp->next_write, record_size, DT_08) ; // add to directory
+  index = RSF_Add_vdir_entry(fp, dir_meta, DRML_32(vdir_meta + extra_meta, vdir_meta + extra_meta), fp->next_write, record_size, DT_08) ; // add to directory
 
   fp->next_write  = lseek(fp->fd, 0l, SEEK_CUR) ;
   fp->cur_pos = fp->next_write ;
