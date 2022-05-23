@@ -106,15 +106,19 @@ int the_test(int argc, char **argv){
 #define DIR_META 4
 #define MAX_DATA 3000
 #define MAX_REC 128
+#define FILE_RECORD 2
 
+// generate data values
 static inline int32_t data_value(int32_t index, int32_t recno, int32_t rank){
   return index + recno + rank ;
 }
 
+// generate metadata values
 static inline int32_t meta_value(int32_t index, int32_t recno, int32_t rank){
   return index + recno + rank ;
 }
 
+// fill data[0] -> data[ndata - 1]
 void fill_data(int32_t *data, int64_t ndata, int32_t recno, int32_t rank){
   int32_t i;
   for(i=0 ; i<ndata ; i++) {
@@ -122,6 +126,7 @@ void fill_data(int32_t *data, int64_t ndata, int32_t recno, int32_t rank){
   }
 }
 
+// fill meta[1] -> meta[nmeta - 1] (meta[0] is left untouched)
 void fill_meta(int32_t *meta, int32_t nmeta, int32_t recno, int32_t rank){
   int32_t i;
   for(i=1 ; i<nmeta ; i++) {
@@ -159,6 +164,7 @@ int the_test(int argc, char **argv){
   uint32_t mask[DIR_META] ;
   int64_t put_slot[MAX_REC] ;
   int32_t slot_meta[MAX_REC] ;
+  int32_t meta0[MAX_REC] ;
   int64_t segsize = 0 ;
   int64_t ndata, max_bytes ;
   int64_t key ;
@@ -179,11 +185,16 @@ int the_test(int argc, char **argv){
   if(argc >= 4) {
     creator = atoi(argv[3]) ;
   }
-  fprintf(stderr,"=============== phase 1 ===============\n") ;
-  fprintf(stderr,"PE %d of %d, pid = %d, ntests = %d, creator = %d\n", my_rank+1, nprocs, getpid(), ntests, creator) ;
+  fprintf(stderr,"PE %d of %d, pid = %d, ntests = %d\n", my_rank+1, nprocs, getpid(), ntests) ;
+  if(creator >= nprocs) {
+    if(my_rank == 0) fprintf(stderr,"ERROR : invalid creator process %d (must be between 0 and %d)\n", creator, nprocs-1);
+    goto ERROR ;
+  }
+  fprintf(stderr,"=============== phase 1, creator process = %d ===============\n", creator) ;
 
   MPI_Barrier(MPI_COMM_WORLD) ;
 
+  int errors = 0 ;
   if(my_rank == creator){
 //     segsize = 1024 * 1024 ;
     segsize = 0 ;
@@ -194,16 +205,19 @@ int the_test(int argc, char **argv){
       max_bytes = (i & 0x3) + ndata * sizeof(int32_t) ;
       record = RSF_New_record(h1, REC_META, DIR_META, max_bytes, NULL, max_bytes) ;
       fprintf(stderr,"record allocated at %16.16p \n", record);
-      meta[0] = (8 + i) | (1 << 8) ;                 // class 1 records
+      meta[0] = (8 + i) | (1 << 8) ;                 // class 1 records, record type = 8 + i
       fill_meta(meta, REC_META, recno, my_rank) ;
       fill_data(data, ndata, recno, my_rank) ;
-      if(i != 2){
+      if(i != FILE_RECORD){                          // regular data
         slot_meta[i] = DIR_META ;
         put_slot[i] = RSF_Put_bytes(h1, NULL, meta, REC_META, DIR_META, data, (i & 0x3) + ndata * sizeof(int32_t), DT_32) ;
-      }else{
+//         meta0[i] = meta[0] ;
+      }else{                                         // file container
         put_slot[i] = RSF_Put_file(h1, "icc.txt", meta, 2) ;
         slot_meta[i] = 2 ;
+//         meta0[i] = RT_FILE + (RT_FILE_CLASS << 8) ;
       }
+      meta0[i] = meta[0] ;
       fprintf(stderr," recno = %d, slot = %ld [", recno, put_slot[i]) ;
       for(j=0 ; j<REC_META ; j++) fprintf(stderr," %8.8x", meta[j]) ;
       fprintf(stderr,"]\n") ;
@@ -218,59 +232,168 @@ int the_test(int argc, char **argv){
     }
     fprintf(stderr,"===      test record locator      ===\n") ;
     for(i=1 ; i<DIR_META ; i++) mask[i] = 0xFFFFFFFF ;
-    mask[0] = 0 ;
-    for(i=0 ; i<recno ; i++){
+    mask[0] = 0 ; // record class and type will be ignored
+
+    fprintf(stderr," - from beginning of file\n");
+    errors = 0 ;
+    for(i=0 ; i<recno ; i++){ // find loop starting at beginning of file
       fill_meta(criteria, REC_META, i, my_rank) ;
       key = 0 ;
-//       for(j=0 ; j<DIR_META ; j++) fprintf(stderr," %8.8d", criteria[j]) ; fprintf(stderr,"\n") ;
       key = RSF_Lookup(h1, key, criteria, mask, slot_meta[i]) ;
-      fprintf(stderr,"record = %d, key = %16.16lx, expected = %16.16lx\n", i, key, put_slot[i]) ;
+      fprintf(stderr,"record = %d, key = %16.16lx, expected = %16.16lx, ML = %d\n", i, key, put_slot[i], slot_meta[i]) ;
+      if(key != put_slot[i]) errors++ ;
     }
+    fprintf(stderr,"%s\n", errors == 0 ? "SUCCESS" : "FAILED") ;
+    if(errors > 0) goto END1 ;
+
+    fprintf(stderr," - from previous position in file\n");
+    key = 0 ;
+    errors = 0 ;
+    for(i=0 ; i<recno ; i++){ // find loop starting at previously found key
+      fill_meta(criteria, REC_META, i, my_rank) ;
+      key = RSF_Lookup(h1, key, criteria, mask, slot_meta[i]) ;
+      fprintf(stderr,"record = %d, key = %16.16lx, expected = %16.16lx, ML = %d\n", i, key, put_slot[i], slot_meta[i]) ;
+      if(key != put_slot[i]) errors++ ;
+    }
+    fprintf(stderr,"%s\n", errors == 0 ? "SUCCESS" : "FAILED") ;
+    if(errors > 0) goto END1 ;
+
+    fprintf(stderr," - from beginning of file, with class and record type\n");
+    errors = 0 ;
+    mask[0] = 0xFFFFFFFFu ;
+    for(i=0 ; i<recno ; i++){ // find loop starting at beginning of file
+      criteria[0] = meta0[i] ; // account for file container records
+      fill_meta(criteria, REC_META, i, my_rank) ;
+      key = 0 ;   // from start of file
+      key = RSF_Lookup(h1, key, criteria, mask, slot_meta[i]) ;
+      fprintf(stderr,"record = %d, key = %16.16lx, expected = %16.16lx, ML = %d\n", i, key, put_slot[i], slot_meta[i]) ;
+      if(key != put_slot[i]) errors++ ;
+    }
+    fprintf(stderr,"%s\n", errors == 0 ? "SUCCESS" : "FAILED") ;
+    if(errors > 0) goto END1 ;
+
+    fprintf(stderr," - from previous position in file, with class and record type\n");
+    errors = 0 ;
+    mask[0] = 0xFFFFFFFFu ;
+    key = 0 ;   // from start of file
+    for(i=0 ; i<recno ; i++){ // find loop starting at previous position in file
+      criteria[0] = meta0[i] ; // account for file container records
+      fill_meta(criteria, REC_META, i, my_rank) ;
+      key = RSF_Lookup(h1, key, criteria, mask, slot_meta[i]) ;
+      fprintf(stderr,"record = %d, key = %16.16lx, expected = %16.16lx, ML = %d\n", i, key, put_slot[i], slot_meta[i]) ;
+      if(key != put_slot[i]) errors++ ;
+    }
+    fprintf(stderr,"%s\n", errors == 0 ? "SUCCESS" : "FAILED") ;
+    if(errors > 0) goto END1 ;
     RSF_Close_file(h1) ;
-  }
+  }   // if(my_rank == creator)
+
+END1 :
+  MPI_Bcast(&errors, 1, MPI_INTEGER, creator, MPI_COMM_WORLD) ;
+  if(errors != 0) goto FAILED ;
   MPI_Barrier(MPI_COMM_WORLD) ;
+
   if(ntests <= 1) goto END ;
-  fprintf(stderr,"=============== phase 2 ===============\n") ;
+  MPI_Bcast(&recno,    1,     MPI_INTEGER, creator, MPI_COMM_WORLD) ;
+  MPI_Bcast(meta0,     recno, MPI_INTEGER, creator, MPI_COMM_WORLD) ;
+  MPI_Bcast(slot_meta, recno, MPI_INTEGER, creator, MPI_COMM_WORLD) ;
+  fprintf(stderr,"=============== phase 2 (all but process %d) ===============\n", creator) ;
   if(my_rank != creator){
     segsize = 111111 ;
     meta_rdim = 0 ;
     h1 = RSF_Open_file(argv[1], RSF_RO, &meta_rdim, "DeMo", &segsize);
     fprintf(stderr," segsize = %ld, meta_dim = %d\n", segsize, meta_rdim) ;
+
+    fprintf(stderr," - blind next key lookup\n") ;
     key = 0 ;
     while( (key = RSF_Lookup(h1, key, NULL, NULL, 0)) >= 0) {
       fprintf(stderr," key = %16.16lx\n", key) ;
     }
-    fprintf(stderr," end key = %16.16lx\n", key) ;
+    fprintf(stderr," end key = %16.16lx\n", key) ;  // ends on invalid key
+
+    fprintf(stderr," - targeted key lookup from beginning of file\n") ;
+    key = 0 ;
+    for(i=1 ; i<DIR_META ; i++) mask[i] = 0xFFFFFFFF ;
+    mask[0] = 0xFFFFFFFFu ;
+    errors = 0 ;
+    for(i=0 ; i<recno ; i++){
+      key = 0 ;
+      criteria[0] = meta0[i] ; // account for file container records
+      fill_meta(criteria, REC_META, i, creator) ;  // use creator rank for criteria
+      key = RSF_Lookup(h1, key, criteria, mask, slot_meta[i]) ;
+      fprintf(stderr," key = %16.16lx, ML = %d\n", key, slot_meta[i]) ;
+      if(key <= 0) {
+        fprintf(stderr,"ERROR: key = %16.16lx, at record #%d\n", key, i) ;
+        errors++ ;
+      }
+    }
     RSF_Close_file(h1) ;
   }
+  int total_errors = 0 ;
+  MPI_Allreduce(&errors, &total_errors, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD) ;
+  fprintf(stderr,"Phase 2 TOTAL ERRORS = %d\n", total_errors) ;
   if(ntests <= 2) goto END ;
-  MPI_Bcast(&recno, 1, MPI_INTEGER, creator, MPI_COMM_WORLD) ;
-  fprintf(stderr,"=============== phase 3 (%d) ===============\n", recno) ;
+
+  fprintf(stderr,"=============== phase 3 (%d existing records) ===============\n", recno) ;
 
   segsize = 1024 * 1024 ;
   h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);  // open segmented file in parallel mode
   sleep(1) ;
-  for(i=0 ; i<1 ; i++){
+  for(i=0 ; i<2 ; i++){
       meta[0] = RT_DATA | (1 << (8 + my_rank)) ;                 // class 2**my_rank records
-      fill_meta(meta, REC_META, recno, my_rank) ;
+      fill_meta(meta, REC_META, recno+i, my_rank) ;
       fill_data(data, 100+i, recno, my_rank) ;
       put_slot[i] = RSF_Put_bytes(h1, NULL, meta, REC_META, DIR_META, data, 100L+i, DT_32) ;
-      fprintf(stderr," recno = %d, slot = %ld [", recno, put_slot[i]) ;
+      fprintf(stderr," recno = %d, slot = %16.16lx [", recno+i, put_slot[i]) ;
       for(j=0 ; j<REC_META ; j++) fprintf(stderr," %8.8x", meta[j]) ;
       fprintf(stderr,"]\n") ;
-      recno++ ;
   }
   RSF_Close_file(h1) ;
 
   MPI_Barrier(MPI_COMM_WORLD) ;
   if(ntests <= 3) goto END ;
-  fprintf(stderr,"=============== phase 4 ===============\n") ;
+  fprintf(stderr,"=============== phase 4 (%d existing records) ===============\n", recno + 2*nprocs) ;
+  segsize = 0 ;
+  h1 = RSF_Open_file(argv[1], RSF_RO, &meta_dim, "DeMo", &segsize);
+
+  fprintf(stderr," - blind next key lookup\n") ;
+  key = 0 ;
+  int count = 0 ;
+  while( (key = RSF_Lookup(h1, key, NULL, NULL, 0)) >= 0) {
+    fprintf(stderr," key = %16.16lx\n", key) ;
+    count++ ;
+  }
+//   fprintf(stderr," end key = %16.16lx\n", key) ;  // ends on invalid key
+  fprintf(stderr,"# of records found = %d, %s\n", count, count == recno + 2*nprocs ? "SUCCESS" : "FAILED") ;
+
+  // look up all new records 
+  fprintf(stderr," - targeted key lookup from beginning of file (new records)\n") ;
+  mask[0] = 0xFFFFFFFFu ;
+  errors = 0 ;
+  for(j = 0 ; j < nprocs ; j++){                             // loop over PE ranks
+    criteria[0] = RT_DATA | (1 << (8 + j)) ;                 // class 2**j records
+    for(i=0 ; i<2 ; i++){                                    // loop over records per rank
+      key = 0 ;
+      fill_meta(criteria, DIR_META, recno+i, j) ;
+      key = RSF_Lookup(h1, key, criteria, mask, DIR_META) ;
+      if(key <= 0) errors++ ;
+      fprintf(stderr," key = %16.16lx, ML = %d\n", key, DIR_META) ;
+    }
+  }
+  fprintf(stderr,"%s\n", errors == 0 ? "SUCCESS" : "FAILED") ;
+  RSF_Close_file(h1) ;
+  total_errors = 0 ;
+  MPI_Allreduce(&errors, &total_errors, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD) ;
+  fprintf(stderr,"Phase 4 TOTAL ERRORS = %d\n", total_errors) ;
 
 END :
   MPI_Finalize() ;
   return(0) ;
+FAILED :
+  fprintf(stderr,"ERROR(S) in test\n") ;
+  goto END ;
 ERROR :
-  if(my_rank == 0) fprintf(stderr,"usage : %s rsf_file\n", argv[0]) ;
+  if(my_rank == 0) fprintf(stderr,"usage : %s rsf_file number_of_tests creator_pe\n", argv[0]) ;
   goto END ;
 }
 #endif

@@ -102,13 +102,14 @@ static int32_t RSF_Valid_file(RSF_File *fp){
     return 0 ;                   // NULL pointer
   }
   if(fp->fd < 0) {
-    fprintf(stderr,"RSF_Valid_file ERROR: fd < 0 (%d)\n", fp->fd);
+    fprintf(stderr,"RSF_Valid_file ERROR: invalid fd < 0 (%d)\n", fp->fd);
     return 0 ;                   // file is not open, ERROR
   }
   // get file slot from file handle table if not initialized
   if(fp->slot < 0) fp->slot = RSF_Find_file_slot(fp) ;
-  if(fp->slot < 0) {
-    fprintf(stderr,"RSF_Valid_file ERROR: no slot found in file handle\n");
+  // check validity of fp->slot
+  if((fp->slot < 0) || (fp->slot >= max_rsf_files_open)) {
+    fprintf(stderr,"RSF_Valid_file ERROR: slot number found in file handle is invalid\n");
     return 0 ;                   // not in file handle table
   }
   if(fp != rsf_files[fp->slot] ) {
@@ -231,7 +232,7 @@ ERROR:
 // meta   pointer to memory directory metadata for record
 // return length of directory metadata in 32 bit units, -1 if error
 //        in case of error, 
-int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint64_t *rl, uint32_t **meta){
+static int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint64_t *rl, uint32_t **meta){
   int inxd ;
   int32_t slot, indx ;
   vdir_entry *ventry ;
@@ -278,7 +279,7 @@ ERROR :
 // return   key for record file slot(index) in upper 32 bits, record index in lower 32 bits (both in origin 1)
 //          -1 in case of error
 //          invalid key pointing one beyond last record if no match is found
-int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *mask, uint32_t lcrit, uint64_t *wa, uint64_t *rl)
+static int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *mask, uint32_t lcrit, uint64_t *wa, uint64_t *rl)
 {
   int64_t slot, key ;
   int index, i, dir_meta ;
@@ -292,7 +293,7 @@ int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *
 
   if( ! (slot = RSF_Valid_file(fp)) ){
     error = "invalid file reference" ;
-    goto ERROR ;      // something wrong. with fp
+    goto ERROR ;      // something wrong with fp
   }
   if( (key0 != 0) && ((key0 >> 32) != slot) ) {
     error = "inconsistent file slot" ;
@@ -356,7 +357,7 @@ int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *
   error = "no match found" ;
 
 ERROR :
-fprintf(stderr,"RSF_Scan_vdir ERROR : key = %16.16lx, len = %d,  %s\n\n", key0, lcrit, error) ;
+fprintf(stderr,"RSF_Scan_vdir ERROR : key = %16.16lx, len = %d,  %s\n", key0, lcrit, error) ;
   return badkey ;
 
 MATCH:
@@ -1195,6 +1196,7 @@ fprintf(stderr,"RSF_Put_file DEBUG : name = '%s', size = %ld(%ld), vdir_meta = %
 
   meta0 = RT_FILE + (RT_FILE_CLASS << 8) ;          // record type and class
   file_meta[0] = meta0 ;
+  meta[0] = meta0 ;                                 // update caller's meta[0]
   nc = write(fp->fd, file_meta, (meta_size + extra_meta) * sizeof(uint32_t)) ;
 
 //   nc = RSF_Copy_file(fp->fd, fd, file_size) ;
@@ -1414,7 +1416,7 @@ static int32_t RSF_File_lock(RSF_File *fp, int lock){
 // if sparse_size == 0 , create a "compact" segment,
 // otherwise create a "sparse" segment of size at least sparse_size (in bytes)
 // sparse_size is rounded up to make sure top of segment is on a rounding block boundary
-int RSF_New_empty_segment(RSF_File *fp, int32_t meta_dim, const char *appl, uint64_t sparse_size){
+static int RSF_New_empty_segment(RSF_File *fp, int32_t meta_dim, const char *appl, uint64_t sparse_size){
   ssize_t nc ;
   int i ;
   off_t start = 0 ;
