@@ -149,6 +149,7 @@ typedef struct{
   uint64_t wa_data ;   // address of data in file
   uint64_t data_size ; // actual data size in bytes (may remain 0 in unmanaged records)
   uint64_t wa_meta ;   // address of metadata in file
+  uint32_t *meta ;     // pointer to directory metadata
   uint16_t dir_meta ;  // directory metadata size in uint32_t units
   uint16_t rec_meta ;  // record metadata size in uint32_t units
   uint16_t elem_size ; // length of data elements (1/2/4/8 bytes) (endianness management)

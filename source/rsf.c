@@ -1283,6 +1283,7 @@ RSF_record_info RSF_Get_record_info(RSF_handle h, int64_t key){
   info.wa_meta = info.wa + sizeof(start_of_record) ;  // metadata address in file
   info.rec_meta = REC_ML(fp->vdir[key]->ml) ;         // record metadata length
   info.dir_meta = DIR_ML(fp->vdir[key]->ml) ;         // directory metadata length
+  info.meta = fp->vdir[key]->meta ;
   info.wa_data = info.wa_meta +                       // data address in file
                  info.rec_meta * sizeof(int32_t) ;
   info.data_size = info.rl -                          // length of data payload
@@ -1359,10 +1360,10 @@ fprintf(stderr,"RSF_Get_record DEBUG: key = %ld, wa = %8.8lx, rl = %8.8lx, rlm =
     record->rec_meta = rlm ;
     record->dir_meta = rlmd ;
     record->meta = record->sor + sizeof(start_of_record) ;
-    record->data_size = record->eor - record->data ;
-    record->data = record->eor + sizeof(start_of_record) + sizeof(uint32_t) * rlm ;
+    record->eor = p + sizeof(RSF_record) + recsize - sizeof(end_of_record) ;
+    record->data = record->sor + sizeof(start_of_record) + sizeof(uint32_t) * rlm ;
+    record->data_size = (char *)(record->eor) - (char *)(record->data) ;
     record->max_data = record->data_size ;
-    record->eor = p + recsize - sizeof(end_of_record) ;
 for(i=0 ; i<rlm ; i++)fprintf(stderr," %8.8x", record->meta[i]) ;
 fprintf(stderr,"\n");
   }else{

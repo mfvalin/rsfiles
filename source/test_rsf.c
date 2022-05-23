@@ -159,6 +159,7 @@ int the_test(int argc, char **argv){
   int32_t meta_dim = DIR_META ;
   int32_t meta_rdim = 0 ;
   int32_t data[MAX_DATA] ;
+  int32_t data_in[MAX_DATA] ;
   uint32_t meta[REC_META] ;
   uint32_t criteria[REC_META] ;
   uint32_t mask[DIR_META] ;
@@ -174,6 +175,8 @@ int the_test(int argc, char **argv){
   int32_t i, j ;
   RSF_record *record = NULL ;
   RSF_record_info ri ;
+  useconds_t usleep_delay ;
+  int32_t status ;
 
   MPI_Init(&argc, &argv) ;
   MPI_Comm_rank(MPI_COMM_WORLD, &my_rank) ;
@@ -211,6 +214,7 @@ int the_test(int argc, char **argv){
       if(i != FILE_RECORD){                          // regular data
         slot_meta[i] = DIR_META ;
         put_slot[i] = RSF_Put_bytes(h1, NULL, meta, REC_META, DIR_META, data, (i & 0x3) + ndata * sizeof(int32_t), DT_32) ;
+//         fprintf(stderr,"record data size = %d, ndata = %d\n", (i & 0x3) + ndata * sizeof(int32_t), ndata) ;
 //         meta0[i] = meta[0] ;
       }else{                                         // file container
         put_slot[i] = RSF_Put_file(h1, "icc.txt", meta, 2) ;
@@ -240,7 +244,8 @@ int the_test(int argc, char **argv){
       fill_meta(criteria, REC_META, i, my_rank) ;
       key = 0 ;
       key = RSF_Lookup(h1, key, criteria, mask, slot_meta[i]) ;
-      fprintf(stderr,"record = %d, key = %16.16lx, expected = %16.16lx, ML = %d\n", i, key, put_slot[i], slot_meta[i]) ;
+      fprintf(stderr,"record = %d, key = %16.16lx, expected = %16.16lx, ML = %d\n", 
+                     i, key, put_slot[i], slot_meta[i]) ;
       if(key != put_slot[i]) errors++ ;
     }
     fprintf(stderr,"%s\n", errors == 0 ? "SUCCESS" : "FAILED") ;
@@ -252,7 +257,8 @@ int the_test(int argc, char **argv){
     for(i=0 ; i<recno ; i++){ // find loop starting at previously found key
       fill_meta(criteria, REC_META, i, my_rank) ;
       key = RSF_Lookup(h1, key, criteria, mask, slot_meta[i]) ;
-      fprintf(stderr,"record = %d, key = %16.16lx, expected = %16.16lx, ML = %d\n", i, key, put_slot[i], slot_meta[i]) ;
+      fprintf(stderr,"record = %d, key = %16.16lx, expected = %16.16lx, ML = %d\n", 
+                     i, key, put_slot[i], slot_meta[i]) ;
       if(key != put_slot[i]) errors++ ;
     }
     fprintf(stderr,"%s\n", errors == 0 ? "SUCCESS" : "FAILED") ;
@@ -304,12 +310,33 @@ END1 :
     h1 = RSF_Open_file(argv[1], RSF_RO, &meta_rdim, "DeMo", &segsize);
     fprintf(stderr," segsize = %ld, meta_dim = %d\n", segsize, meta_rdim) ;
 
-    fprintf(stderr," - blind next key lookup\n") ;
+    fprintf(stderr," - blind next key lookup + record read\n") ;
     key = 0 ;
+    i = 0 ;
+    errors = 0 ;
     while( (key = RSF_Lookup(h1, key, NULL, NULL, 0)) >= 0) {
-      fprintf(stderr," key = %16.16lx\n", key) ;
+      RSF_record_info rec_info = RSF_Get_record_info(h1, key) ;
+      uint32_t *dirmeta;
+      ndata = 100 + i ;
+      if((rec_info.meta[0] >> 8) != RT_FILE_CLASS) {      // not a file container
+        record = RSF_Get_record(h1, key) ;
+        errors += check_data(record->data, ndata, i, creator) ;
+        fprintf(stderr," key = %16.16lx, status = %d, data = %p, ndata = %d %d\n", 
+                      key, status, record->data, ndata, record->data_size) ;
+      }else{
+        uint32_t *metaf, fmeta_size ;
+        int64_t key2 = RSF_Get_file(h1, key, "tagada2.txt", &metaf, &fmeta_size) ;
+        fprintf(stderr," key = %16.16lx,  %16.16lx, file = %s\n", key, key2, "tagada2.txt") ;
+        fprintf(stderr,"file tagada2.txt reload : %s\n",(key == key2) ? "SUCCESS" : "FAILED" ) ;
+      }
+      i++ ;
+      if(record != NULL) {
+        RSF_Free_record(record) ;
+        record = NULL ;
+      }
     }
-    fprintf(stderr," end key = %16.16lx\n", key) ;  // ends on invalid key
+    fprintf(stderr," end key = %16.16lx, read errors = %d, ", key, errors) ;  // ends on invalid key
+    fprintf(stderr,"%s\n", errors == 0 ? "SUCCESS" : "FAILED") ;
 
     fprintf(stderr," - targeted key lookup from beginning of file\n") ;
     key = 0 ;
@@ -338,7 +365,7 @@ END1 :
 
   segsize = 1024 * 1024 ;
   h1 = RSF_Open_file(argv[1], RSF_RW, &meta_dim, "DeMo", &segsize);  // open segmented file in parallel mode
-  sleep(1) ;
+  usleep(usleep_delay = 100000) ;
   for(i=0 ; i<2 ; i++){
       meta[0] = RT_DATA | (1 << (8 + my_rank)) ;                 // class 2**my_rank records
       fill_meta(meta, REC_META, recno+i, my_rank) ;
