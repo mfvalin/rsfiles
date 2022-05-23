@@ -99,7 +99,7 @@ int the_test(int argc, char **argv){
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <rsf_int.h>
+#include <rsf.h>
 #include <mpi.h>
 
 #define REC_META 6
