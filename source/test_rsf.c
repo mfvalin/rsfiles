@@ -231,8 +231,8 @@ int the_test(int argc, char **argv){
     fprintf(stderr,"===      get record information      ===\n") ;
     for(i=0 ; i<recno ; i++){
       ri = RSF_Get_record_info(h1, put_slot[i]) ;
-      fprintf(stderr," record %d : wa = %8.8ld, rl = %8ld, dl = %8ld(%dB), rec_meta = %d, dir_meta = %d\n",
-              i, ri.wa, ri.rl, ri.data_size, ri.elem_size, ri.rec_meta, ri.dir_meta) ;
+      fprintf(stderr," record %d : wa = %8.8ld, rl = %8ld, dl = %8ld(%dB), rec_meta = %d, dir_meta = %d(%d) %s\n",
+              i, ri.wa, ri.rl, ri.data_size, ri.elem_size, ri.rec_meta, ri.dir_meta, ri.dir_meta0, ri.fname ? ri.fname : "" ) ;
     }
     fprintf(stderr,"===      test record locator      ===\n") ;
     for(i=1 ; i<DIR_META ; i++) mask[i] = 0xFFFFFFFF ;
@@ -303,7 +303,9 @@ END1 :
   MPI_Bcast(&recno,    1,     MPI_INTEGER, creator, MPI_COMM_WORLD) ;
   MPI_Bcast(meta0,     recno, MPI_INTEGER, creator, MPI_COMM_WORLD) ;
   MPI_Bcast(slot_meta, recno, MPI_INTEGER, creator, MPI_COMM_WORLD) ;
+
   fprintf(stderr,"=============== phase 2 (all but process %d) ===============\n", creator) ;
+  int reload = 0 ;
   if(my_rank != creator){
     segsize = 111111 ;
     meta_rdim = 0 ;
@@ -318,16 +320,17 @@ END1 :
       RSF_record_info rec_info = RSF_Get_record_info(h1, key) ;
       uint32_t *dirmeta;
       ndata = 100 + i ;
-      if((rec_info.meta[0] >> 8) != RT_FILE_CLASS) {      // not a file container
+      if((rec_info.meta[0] & 0xFF) != RT_FILE) {      // not a file container
         record = RSF_Get_record(h1, key) ;
         errors += check_data(record->data, ndata, i, creator) ;
-        fprintf(stderr," key = %16.16lx, status = %d, data = %p, ndata = %d %d\n", 
-                      key, status, record->data, ndata, record->data_size) ;
-      }else{
+        fprintf(stderr," key = %16.16lx, status = %d, data = %p, ndata = %d(%ld)\n", 
+                      key, status, record->data, ndata * rec_info.elem_size, record->data_size) ;
+      }else{                                          // this is a file container
         uint32_t *metaf, fmeta_size ;
-        int64_t key2 = RSF_Get_file(h1, key, "tagada2.txt", &metaf, &fmeta_size) ;
-        fprintf(stderr," key = %16.16lx,  %16.16lx, file = %s\n", key, key2, "tagada2.txt") ;
-        fprintf(stderr,"file tagada2.txt reload : %s\n",(key == key2) ? "SUCCESS" : "FAILED" ) ;
+        int64_t key2 = RSF_Get_file(h1, key, "tagada.txt", &metaf, &fmeta_size) ;
+        fprintf(stderr," key = %16.16lx,  %16.16lx, file size = %ld\n", key, key2, rec_info.file_size) ;
+        if(key2 == key) reload++ ;
+        fprintf(stderr,"reload %s as tagada.txt  : %s\n", rec_info.fname,(key == key2) ? "SUCCESS" : "FAILED" ) ;
       }
       i++ ;
       if(record != NULL) {
@@ -357,7 +360,15 @@ END1 :
     RSF_Close_file(h1) ;
   }
   int total_errors = 0 ;
+  int total_reload = 0 ;
   MPI_Allreduce(&errors, &total_errors, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD) ;
+  MPI_Allreduce(&reload, &total_reload, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD) ;
+  if(total_reload != 1) {
+    fprintf(stderr,"ERROR: expecting 1 successful reload, got %d FAILED\n", total_reload) ;
+    total_errors++ ;
+  }else{
+    fprintf(stderr,"Phase 2 successful reloads = %d, SUCCESS\n", total_reload) ;
+  }
   fprintf(stderr,"Phase 2 TOTAL ERRORS = %d\n", total_errors) ;
   if(ntests <= 2) goto END ;
 

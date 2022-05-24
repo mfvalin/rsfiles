@@ -1266,6 +1266,7 @@ RSF_record_info RSF_Get_record_info(RSF_handle h, int64_t key){
   RSF_File *fp = (RSF_File *) h.p ;
   char *errmsg = "" ;
   int32_t slot, fslot ;
+  char *temp, *temp0 ;
 
   errmsg = "invalid fp" ;
   if( (fslot = RSF_Valid_file(fp)) == 0 ) goto ERROR ;  // something wrong with fp
@@ -1283,6 +1284,7 @@ RSF_record_info RSF_Get_record_info(RSF_handle h, int64_t key){
   info.wa_meta = info.wa + sizeof(start_of_record) ;  // metadata address in file
   info.rec_meta = REC_ML(fp->vdir[key]->ml) ;         // record metadata length
   info.dir_meta = DIR_ML(fp->vdir[key]->ml) ;         // directory metadata length
+  info.dir_meta0 = info.dir_meta ;
   info.meta = fp->vdir[key]->meta ;
   info.wa_data = info.wa_meta +                       // data address in file
                  info.rec_meta * sizeof(int32_t) ;
@@ -1290,6 +1292,20 @@ RSF_record_info RSF_Get_record_info(RSF_handle h, int64_t key){
                    sizeof(start_of_record) -
                    sizeof(end_of_record) -
                    info.rec_meta * sizeof(int32_t) ;
+  info.fname = NULL ;                                 // if not a file container
+  info.file_size = 0 ;                                // if not a file container
+  if((info.meta[0] & 0xFF) == RT_FILE){                      // file container detected
+    temp0 = (char *) info.meta ;
+    temp = (char *) &info.meta[info.dir_meta] ;             // end of metadata
+    while((temp[ 0] == '\0') && (temp > temp0)) temp-- ;    // skip trailing nulls
+    while((temp[-1] != '\0') && (temp > temp0)) temp-- ;    // back until null is found
+    info.fname = temp ;                                     // file name from directory metadata
+    info.dir_meta0 = (uint32_t *) temp - info.meta - 2 ;    // metadata length excluding file name and file length
+    info.file_size = info.meta[info.dir_meta0] ;
+    info.file_size <<= 32 ;
+    info.file_size += info.meta[info.dir_meta0+1] ;
+//     fprintf(stderr,"RSF_Get_record_info DEBUG: file container %s detected\n", temp);
+  }
   return info ;
 
 ERROR:

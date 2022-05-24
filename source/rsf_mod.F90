@@ -19,6 +19,8 @@ module rsf_mod
 ! 1 suffixed procedures accept RSF_record (a pointer to RSF_record may be obtained from RSF_New_record)
 ! 2 suffixed procedures accept RSF_record_handle (from RSF_New_record_handle)
 
+! TODO : add accessor procedures for type(RSF_record_info)
+
   interface RSF_Valid_record
     module procedure RSF_Valid_record1
     module procedure RSF_Valid_record2
