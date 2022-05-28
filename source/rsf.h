@@ -68,6 +68,15 @@
 #define DT_32  4
 #define DT_64  8
 
+#define RSF_DIAG_NONE    0
+#define RSF_DIAG_ERROR   1
+#define RSF_DIAG_WARN    2
+#define RSF_DIAG_INFO    3
+#define RSF_DIAG_NOTE    4
+#define RSF_DIAG_DEBUG0  6
+#define RSF_DIAG_DEBUG1  7
+#define RSF_DIAG_DEBUG2  8
+
 #if defined(IN_FORTRAN_CODE)
 
   type, BIND(C) :: RSF_handle
@@ -91,7 +100,7 @@
     ! dynamic data array follows, see C struct
   end type
 
-  type, BIND(C) :: RSF_record_info    ! MUST REFLECT EXACTLY C struct RSF_record_info (see below)
+  type, BIND(C) :: RSF_record_info_c  ! MUST REFLECT EXACTLY C struct RSF_record_info (see below)
     private
     integer(C_INT64_T) wa             ! address of record in file
     integer(C_INT64_T) rl             ! record length
@@ -176,6 +185,18 @@ interface
 #endif
 
 #if defined(IN_FORTRAN_CODE)
+  function RSF_set_diag_level(level) result(oldlevel) BIND(C,name='RSF_set_diag_level')
+    import :: C_INT32_T
+    implicit none
+    integer(C_INT32_T), intent(IN), value :: level
+    integer(C_INT32_T) :: oldlevel
+  end function RSF_set_diag_level
+#else
+  int32_t RSF_set_diag_level(int32_t level) ;
+  char *RSF_diag_level_text(int32_t level) ;
+#endif
+
+#if defined(IN_FORTRAN_CODE)
   function RSF_Default_match(criteria, meta, mask, ncrit, nmeta) result(status) bind(C,name='RSF_Default_match')
     import :: C_INT32_T
     implicit none
@@ -233,6 +254,13 @@ interface
     integer(C_INT64_T), intent(IN), value :: key
     type(RSF_record_handle) :: rh
   end function RSF_Get_record
+  function RSF_Get_record_info(fh, key) result(info) BIND(C, name='RSF_Get_record_info')
+    import :: RSF_handle, C_INT64_T, RSF_record_info_c
+    implicit none
+    type(RSF_handle), intent(IN), value :: fh
+    integer(C_INT64_T), intent(IN), value :: key
+    type(RSF_record_info_c) :: info
+  end function RSF_Get_record_info
 #else
   RSF_record_info RSF_Get_record_info(RSF_handle h, int64_t key) ;
   RSF_record *RSF_Get_record(RSF_handle h, int64_t key) ;

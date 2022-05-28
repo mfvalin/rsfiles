@@ -127,7 +127,7 @@ void fill_data(int32_t *data, int64_t ndata, int32_t recno, int32_t rank){
 }
 
 // fill meta[1] -> meta[nmeta - 1] (meta[0] is left untouched)
-void fill_meta(int32_t *meta, int32_t nmeta, int32_t recno, int32_t rank){
+void fill_meta(uint32_t *meta, int32_t nmeta, int32_t recno, int32_t rank){
   int32_t i;
   for(i=1 ; i<nmeta ; i++) {
     meta[i] = meta_value(i, recno, rank) ;
@@ -143,7 +143,7 @@ int32_t check_data(int32_t *data, int32_t ndata, int32_t recno, int32_t rank){
   return errors ;
 }
 
-int32_t check_meta(int32_t *meta, int32_t nmeta, int32_t recno, int32_t rank){
+int32_t check_meta(uint32_t *meta, int32_t nmeta, int32_t recno, int32_t rank){
   int32_t i;
   int32_t errors = 0 ;
   for(i=1 ; i<nmeta ; i++) {
@@ -159,7 +159,7 @@ int the_test(int argc, char **argv){
   int32_t meta_dim = DIR_META ;
   int32_t meta_rdim = 0 ;
   int32_t data[MAX_DATA] ;
-  int32_t data_in[MAX_DATA] ;
+//   int32_t data_in[MAX_DATA] ;
   uint32_t meta[REC_META] ;
   uint32_t criteria[REC_META] ;
   uint32_t mask[DIR_META] ;
@@ -169,13 +169,13 @@ int the_test(int argc, char **argv){
   int64_t segsize = 0 ;
   int64_t ndata, max_bytes ;
   int64_t key ;
-  uint64_t wa, rl ;
+//   uint64_t wa, rl ;
   RSF_handle h1 ;
   int32_t recno = 0 ;
   int32_t i, j ;
   RSF_record *record = NULL ;
   RSF_record_info ri ;
-  useconds_t usleep_delay ;
+  useconds_t usleep_delay = 10000 ;
   int32_t status ;
 
   MPI_Init(&argc, &argv) ;
@@ -190,9 +190,16 @@ int the_test(int argc, char **argv){
   }
   fprintf(stderr,"PE %d of %d, pid = %d, ntests = %d\n", my_rank+1, nprocs, getpid(), ntests) ;
   if(creator >= nprocs) {
-    if(my_rank == 0) fprintf(stderr,"ERROR : invalid creator process %d (must be between 0 and %d)\n", creator, nprocs-1);
+    if(my_rank == 0) fprintf(stderr,"ERROR : invalid creator process %d (should be between 0 and %d)\n", creator, nprocs-1);
     goto ERROR ;
   }
+  if(my_rank == creator){
+    fprintf(stderr,"===== verbosity level table =====\n") ;
+    for(i = RSF_DIAG_NONE-1 ; i <= RSF_DIAG_DEBUG2 + 1 ; i++) fprintf(stderr, "level %2d = '%s'\n", i, RSF_diag_level_text(i)) ;
+    fprintf(stderr,"verbosity level is now %s, was %s\n", 
+            RSF_diag_level_text(RSF_DIAG_DEBUG0), RSF_diag_level_text(RSF_set_diag_level(RSF_DIAG_DEBUG0))) ;
+  }
+
   fprintf(stderr,"=============== phase 1, creator process = %d ===============\n", creator) ;
 
   MPI_Barrier(MPI_COMM_WORLD) ;
@@ -207,7 +214,7 @@ int the_test(int argc, char **argv){
       if(record != NULL) RSF_Free_record(record) ;
       max_bytes = (i & 0x3) + ndata * sizeof(int32_t) ;
       record = RSF_New_record(h1, REC_META, DIR_META, max_bytes, NULL, max_bytes) ;
-      fprintf(stderr,"record allocated at %16.16p \n", record);
+      fprintf(stderr,"record allocated at %p \n", record);
       meta[0] = (8 + i) | (1 << 8) ;                 // class 1 records, record type = 8 + i
       fill_meta(meta, REC_META, recno, my_rank) ;
       fill_data(data, ndata, recno, my_rank) ;
@@ -318,12 +325,12 @@ END1 :
     errors = 0 ;
     while( (key = RSF_Lookup(h1, key, NULL, NULL, 0)) >= 0) {
       RSF_record_info rec_info = RSF_Get_record_info(h1, key) ;
-      uint32_t *dirmeta;
+//       uint32_t *dirmeta;
       ndata = 100 + i ;
       if((rec_info.meta[0] & 0xFF) != RT_FILE) {      // not a file container
         record = RSF_Get_record(h1, key) ;
         errors += check_data(record->data, ndata, i, creator) ;
-        fprintf(stderr," key = %16.16lx, status = %d, data = %p, ndata = %d(%ld)\n", 
+        fprintf(stderr," key = %16.16lx, status = %d, data = %p, ndata = %ld(%ld)\n", 
                       key, status, record->data, ndata * rec_info.elem_size, record->data_size) ;
       }else{                                          // this is a file container
         uint32_t *metaf, fmeta_size ;
@@ -431,7 +438,7 @@ FAILED :
   fprintf(stderr,"ERROR(S) in test\n") ;
   goto END ;
 ERROR :
-  if(my_rank == 0) fprintf(stderr,"usage : %s rsf_file number_of_tests creator_pe\n", argv[0]) ;
+  if(my_rank == 0) fprintf(stderr,"usage : %s rsf_file_name number_of_tests creator_pe\n", argv[0]) ;
   goto END ;
 }
 #endif

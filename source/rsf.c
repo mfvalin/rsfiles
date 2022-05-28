@@ -16,6 +16,41 @@
  */
 #include <rsf_int.h>
 
+static int32_t verbose = RSF_DIAG_WARN ;
+static char *diag_text[RSF_DIAG_DEBUG2+1] ;
+static int diag_init = 1 ;
+
+char *RSF_diag_level_text(int32_t level){
+  int i ;
+  if(diag_init){
+    for(i = 0 ; i <= RSF_DIAG_DEBUG2 ; i++) diag_text[i] = "INVALID" ;
+    diag_text[RSF_DIAG_NONE]  = "NONE" ;
+    diag_text[RSF_DIAG_ERROR] = "ERROR" ;
+    diag_text[RSF_DIAG_WARN]  = "WARN" ;
+    diag_text[RSF_DIAG_INFO]  = "INFO" ;
+    diag_text[RSF_DIAG_NOTE]  = "NOTE" ;
+    diag_text[RSF_DIAG_DEBUG0] = "LOW DEBUG" ;
+    diag_text[RSF_DIAG_DEBUG1] = "MID DEBUG" ;
+    diag_text[RSF_DIAG_DEBUG2] = "MAX DEBUG" ;
+    diag_init = 0 ;
+  }
+  if(level >= 0 && level <= RSF_DIAG_DEBUG2) {
+    return diag_text[level] ;
+  }else{
+    return "INVALID" ;
+  }
+}
+
+int32_t RSF_set_diag_level(int32_t level){
+  int32_t old_level = verbose ;
+  if(level == RSF_DIAG_NONE || level == RSF_DIAG_ERROR || level == RSF_DIAG_WARN || 
+     level == RSF_DIAG_INFO || level == RSF_DIAG_NOTE  || level == RSF_DIAG_DEBUG0 ||
+     level == RSF_DIAG_DEBUG1 || level == RSF_DIAG_DEBUG2 ) {
+    verbose = level ;
+  }
+  return old_level ;
+}
+
 // =================================  table of pointers to rsf files (slots) =================================
 static pointer *rsf_files = NULL ;         // global table of pointers to rsf files (slot table)
 static int rsf_files_open = 0 ;            // number of rsf files currently open
@@ -64,7 +99,8 @@ static int32_t RSF_Set_file_slot(void *p)
     if(rsf_files[i] == NULL) {
       rsf_files[i] = p ;
       rsf_files_open ++ ;     // one more open file
-// fprintf(stderr,"RSF_Set_file_slot DEBUG: rsf file table slot %d assigned, p = %p\n", i, p);
+      if(verbose >= RSF_DIAG_DEBUG2) 
+        fprintf(stderr,"RSF_Set_file_slot DEBUG2: rsf file table slot %d assigned, p = %p\n", i, p);
       return i ;              // slot number
     }
   }
@@ -84,7 +120,8 @@ static int32_t RSF_Purge_file_slot(void *p)
     if(rsf_files[i] == p) {
       rsf_files[i] = (void *) NULL ;
       rsf_files_open-- ;     // one less open file
-// fprintf(stderr,"RSF_Purge_file_slot DEBUG: rsf file table slot %d freed, p = %p\n", i, p);
+      if(verbose >= RSF_DIAG_DEBUG2) 
+        fprintf(stderr,"RSF_Purge_file_slot DEBUG2: rsf file table slot %d freed, p = %p\n", i, p);
       return i ;             // slot number
     }
   }
@@ -98,22 +135,26 @@ static int32_t RSF_Purge_file_slot(void *p)
 // return slot number + 1 if valid structure, otherwise return 0
 static int32_t RSF_Valid_file(RSF_File *fp){
   if(fp == NULL) {
-    fprintf(stderr,"RSF_Valid_file ERROR: file handle is NULL\n");
+    if(verbose >= RSF_DIAG_ERROR) 
+      fprintf(stderr,"RSF_Valid_file ERROR: file handle is NULL\n");
     return 0 ;                   // NULL pointer
   }
   if(fp->fd < 0) {
-    fprintf(stderr,"RSF_Valid_file ERROR: invalid fd < 0 (%d)\n", fp->fd);
+    if(verbose >= RSF_DIAG_ERROR) 
+      fprintf(stderr,"RSF_Valid_file ERROR: invalid fd < 0 (%d)\n", fp->fd);
     return 0 ;                   // file is not open, ERROR
   }
   // get file slot from file handle table if not initialized
   if(fp->slot < 0) fp->slot = RSF_Find_file_slot(fp) ;
   // check validity of fp->slot
   if((fp->slot < 0) || (fp->slot >= max_rsf_files_open)) {
-    fprintf(stderr,"RSF_Valid_file ERROR: slot number found in file handle is invalid\n");
+    if(verbose >= RSF_DIAG_ERROR) 
+      fprintf(stderr,"RSF_Valid_file ERROR: slot number found in file handle is invalid\n");
     return 0 ;                   // not in file handle table
   }
   if(fp != rsf_files[fp->slot] ) {
-    fprintf(stderr,"RSF_Valid_file ERROR: inconsistent slot data %p %p, slot = %d\n", fp, rsf_files[fp->slot], fp->slot);
+    if(verbose >= RSF_DIAG_ERROR) 
+      fprintf(stderr,"RSF_Valid_file ERROR: inconsistent slot data %p %p, slot = %d\n", fp, rsf_files[fp->slot], fp->slot);
     return 0 ;                   // inconsistent slot
   }
   return fp->slot + 1;
@@ -146,9 +187,10 @@ static directory_block *RSF_Add_vdir_block(RSF_File *fp, uint32_t min_block)
   dd = (directory_block *) p ;
   dd->next = fp->dirblocks ;             // next block pointer -> start of current list
   dd->cur = dd->entries ;                // beginning of entries storage area (insertion point)
-  dd->top = p + sz ;                     // last usable addess in block is dd->top -1
+  dd->top = (uint8_t *)p + sz ;                     // last usable addess in block is dd->top -1
   fp->dirblocks = dd ;                   // new start of blocks list
-fprintf(stderr,"RSF_Add_vdir_block DEBUG: added block of size %ld, next = %p, fp->dir = %p\n", sz, dd->next, fp->dirblocks) ;
+  if(verbose >= RSF_DIAG_DEBUG1) 
+    fprintf(stderr,"RSF_Add_vdir_block DEBUG: added block of size %ld, next = %p, fp->dir = %p\n", sz, dd->next, fp->dirblocks) ;
   return dd ;
 }
 
@@ -200,7 +242,8 @@ static int64_t RSF_Add_vdir_entry(RSF_File *fp, uint32_t *meta, uint32_t mlr, ui
   needed = sizeof(vdir_entry) +        // base size for entry to be added
            mld * sizeof(uint32_t) ;    // directory metadata size
   if(dd->top - dd->cur < needed) {     // add a new block if no room for entry in current block
-// fprintf(stderr,"RSF_Add_vdir_entry DEBUG: need %d, have %d, allocating a new block\n", needed, dd->top - dd->cur) ;
+    if(verbose >= RSF_DIAG_DEBUG1) 
+      fprintf(stderr,"RSF_Add_vdir_entry DEBUG2: need %d, have %ld, allocating a new block\n", needed, dd->top - dd->cur) ;
     dd = RSF_Add_vdir_block(fp, needed) ;
   }
   if(dd == NULL) goto ERROR ;          // new block creation failed
@@ -233,7 +276,6 @@ ERROR:
 // return length of directory metadata in 32 bit units, -1 if error
 //        in case of error, 
 static int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint64_t *rl, uint32_t **meta){
-  int inxd ;
   int32_t slot, indx ;
   vdir_entry *ventry ;
   char *error ;
@@ -261,7 +303,8 @@ static int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint6
   return DIR_ML(ventry->ml) ;        // return directory metadata length
 
 ERROR :
-  fprintf(stderr,"RSF_Get_vdir_entry ERROR : %s\n", error) ;
+  if(verbose >= RSF_DIAG_ERROR) 
+    fprintf(stderr,"RSF_Get_vdir_entry ERROR : %s\n", error) ;
   return -1 ;
 }
 
@@ -282,7 +325,7 @@ ERROR :
 static int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *mask, uint32_t lcrit, uint64_t *wa, uint64_t *rl)
 {
   int64_t slot, key ;
-  int index, i, dir_meta ;
+  int index, dir_meta ;
   vdir_entry *ventry ;
   uint32_t *meta ;
   uint32_t rt0, class0, class_meta ;
@@ -331,9 +374,12 @@ static int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uin
   if(scan_match == NULL)
     scan_match = &RSF_Default_match ;       // no function associated, use default function
 
-//   fprintf(stderr,"DEBUG: RSF_Scan_vdir\n") ;
-//   fprintf(stderr,"criteria ") ;for(i = 0 ; i < lcrit ; i++) fprintf(stderr," %8.8x", criteria[i]) ; fprintf(stderr,"\n") ;
-//   if(mask)fprintf(stderr,"mask     ") ;for(i = 0 ; i < lcrit ; i++) fprintf(stderr," %8.8x", mask[i]) ; fprintf(stderr,"\n") ;
+  if(verbose >= RSF_DIAG_DEBUG2) {
+    int i ;
+    fprintf(stderr,"DEBUG2: RSF_Scan_vdir\n") ;
+    fprintf(stderr,"criteria ") ; for(i = 0 ; i < lcrit ; i++) fprintf(stderr," %8.8x", criteria[i]) ; fprintf(stderr,"\n") ;
+    if(mask) { fprintf(stderr,"mask     ") ; for(i = 0 ; i < lcrit ; i++) fprintf(stderr," %8.8x", mask[i]) ; fprintf(stderr,"\n") ; }
+  }
   for( ; index < fp->vdir_used ; index++ ){ // loop over records in directory starting from requested position
     ventry = fp->vdir[index] ;              // get entry
     if(lcrit == 0) goto MATCH ;             // no criteria specified, everything matches
@@ -357,7 +403,8 @@ static int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uin
   error = "no match found" ;
 
 ERROR :
-fprintf(stderr,"RSF_Scan_vdir ERROR : key = %16.16lx, len = %d,  %s\n", key0, lcrit, error) ;
+  if(verbose >= RSF_DIAG_DEBUG0) 
+    fprintf(stderr,"RSF_Scan_vdir ERROR : key = %16.16lx, len = %d,  %s\n", key0, lcrit, error) ;
   return badkey ;
 
 MATCH:
@@ -365,7 +412,8 @@ MATCH:
   key = key + index + 1 ;               // add record number (origin 1) to key
   *wa = RSF_32_to_64(ventry->wa) ;      // address of record in file
   *rl = RSF_32_to_64(ventry->rl) ;      // record length
-//   fprintf(stderr,"RSF_Scan_vdir SUCCESS : key = %16.16lx\n\n", key);
+  if(verbose >= RSF_DIAG_DEBUG2) 
+    fprintf(stderr,"RSF_Scan_vdir SUCCESS : key = %16.16lx\n\n", key);
   return key ;                          // return key value containing file "slot" and record index
 }
 
@@ -377,8 +425,7 @@ static int32_t RSF_Read_directory(RSF_File *fp){
   int32_t entries = 0 ;
   int32_t l_entries, directories ;
   int32_t segments = 0 ;
-  int32_t slot ;
-  uint64_t size_seg, dir_off, vdir_off, dir_size, vdir_size, dir_size2, sos_seg ;
+  uint64_t size_seg, vdir_off, vdir_size, sos_seg ;
   uint64_t wa, rl ;
   start_of_segment sos ;
   off_t off_seg ;
@@ -387,15 +434,12 @@ static int32_t RSF_Read_directory(RSF_File *fp){
   vdir_entry *ventry ;
   char *e ;
   int i, ml ;
-  uint64_t dir_entry_size ;
   uint32_t *meta ;
-  uint32_t meta_dim ;
   char *errmsg = "" ;
-  off_t wa_dir ;
-  end_of_record eor ;
 
   if(fp->dir_read > 0){  // redundant call, directory already read
-fprintf(stderr,"RSF_Read_directory DEBUG : directory ALREADY READ %d entries\n", fp->dir_read) ;
+  if(verbose >= RSF_DIAG_DEBUG0) 
+    fprintf(stderr,"RSF_Read_directory DEBUG : directory ALREADY READ %d entries\n", fp->dir_read) ;
     return fp->dir_read ;
   }
 // fprintf(stderr,"read directory, file '%s', slot = %d\n",fp->name, RSF_Valid_file(fp)) ;
@@ -427,8 +471,9 @@ fprintf(stderr,"RSF_Read_directory DEBUG : directory ALREADY READ %d entries\n",
       }
       fp->sparse_segs[fp->sparse_used].base = off_seg ;
       fp->sparse_segs[fp->sparse_used].size = size_seg - sizeof(start_of_segment) ;
-      fprintf(stderr,"RSF_Read_directory DEBUG : segment %d sparse at %12.12lx, space available = %ld, rlm = %d\n", 
-              segments-1, fp->sparse_segs[fp->sparse_used].base, fp->sparse_segs[fp->sparse_used].size, sos.head.rlm) ;
+      if(verbose >= RSF_DIAG_DEBUG0) 
+        fprintf(stderr,"RSF_Read_directory DEBUG : segment %d sparse at %12.12lx, space available = %ld, rlm = %d\n", 
+                segments-1, fp->sparse_segs[fp->sparse_used].base, fp->sparse_segs[fp->sparse_used].size, sos.head.rlm) ;
       if(fp->sparse_used < fp->sparse_size-1) fp->sparse_used++ ;  // do not overflow table
     }
     vdir_off  = RSF_32_to_64(sos.vdir) ;                    // offset of vdir in segment
@@ -454,11 +499,13 @@ fprintf(stderr,"RSF_Read_directory DEBUG : directory ALREADY READ %d entries\n",
       }
       if(vdir) free(vdir) ;                                 // free memory used to read segment directory from file
       vdir = NULL ;                                         // to avoid a potential double free
-      fprintf(stderr,"RSF_Read_directory DEBUG: found %d entries in segment %d\n", l_entries, segments-1) ;
+      if(verbose >= RSF_DIAG_DEBUG0) 
+        fprintf(stderr,"RSF_Read_directory DEBUG: found %d entries in segment %d\n", l_entries, segments-1) ;
     }
     off_seg += size_seg ;                                   // offset of the start of the next segment
   }  // while(1) loop over segments
-fprintf(stderr,"RSF_Read_directory DEBUG: directory entries = %d, segments = %d, directories = %d \n", entries, segments, directories) ;
+  if(verbose >= RSF_DIAG_DEBUG0) 
+    fprintf(stderr,"RSF_Read_directory DEBUG: directory entries = %d, segments = %d, directories = %d \n", entries, segments, directories) ;
   fp->dir_read = entries ;
   return entries ;                                          // return number of records found in segment directories
 
@@ -477,7 +524,8 @@ static size_t RSF_Vdir_record_size(RSF_File *fp){
     ml = DIR_ML(fp->vdir[i]->ml) ;
     dir_rec_size += ( sizeof(vdir_entry) + ml * sizeof(uint32_t) );  // fixed part + metadata
   }
-fprintf(stderr, "RSF_Vdir_record_size DEBUG : dir rec size = %ld %ld\n", dir_rec_size, fp->vdir_size);
+  if(verbose >= RSF_DIAG_DEBUG0) 
+    fprintf(stderr, "RSF_Vdir_record_size DEBUG : dir rec size = %ld %ld\n", dir_rec_size, fp->vdir_size);
   return dir_rec_size ;
 }
 // write directory to file from memory directory (variable length metadata)
@@ -521,9 +569,11 @@ static int64_t RSF_Write_vdir(RSF_File *fp){
 
 // do not start at entry # 0, but entry # fp->dir_read (only write entries from "active" segment)
 // when "fusing" segments, fp->dir_read will be reset to 0
-fprintf(stderr,"RSF_Write_vdir DEBUG : skipping %d records, segment base = %lx", fp->dir_read, fp->seg_base) ;
-fprintf(stderr,", dir_rec_size = %ld ", dir_rec_size) ;
-fprintf(stderr,", dir_read = %d, vdir_used = %d\n", fp->dir_read, fp->vdir_used) ;
+  if(verbose >= RSF_DIAG_DEBUG0) {
+    fprintf(stderr,"RSF_Write_vdir DEBUG : skipping %d records, segment base = %lx", fp->dir_read, fp->seg_base) ;
+    fprintf(stderr,", dir_rec_size = %ld ", dir_rec_size) ;
+    fprintf(stderr,", dir_read = %d, vdir_used = %d\n", fp->dir_read, fp->vdir_used) ;
+  }
 //
   for(i = fp->dir_read ; i < fp->vdir_used ; i++){             // fill from in memory directory
     entry = (vdir_entry *) e ;
@@ -542,7 +592,8 @@ fprintf(stderr,", dir_read = %d, vdir_used = %d\n", fp->dir_read, fp->vdir_used)
   fp->next_write += n_written ;                     // update last write position
   fp->cur_pos = fp->next_write ;                    // update file current position
   fp->last_op = OP_WRITE ;                          // last operation was a write
-// fprintf(stderr,"RSF_Write_vdir DEBUG : fp->next_write = %lx, vdir record size = %ld \n", fp->next_write, dir_rec_size) ;
+  if(verbose >= RSF_DIAG_DEBUG2)
+    fprintf(stderr,"RSF_Write_vdir DEBUG2 : fp->next_write = %lx, vdir record size = %ld \n", fp->next_write, dir_rec_size) ;
   if(n_written != dir_rec_size) {                   // everything written ?
     dir_rec_size = 0 ;                              // error, return 0 as directory size
   }
@@ -563,15 +614,19 @@ fprintf(stderr,", dir_read = %d, vdir_used = %d\n", fp->dir_read, fp->vdir_used)
 // returns 0 in case of no match, 1 otherwise
 int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta)
 {
-  int i, j ;
+  int i ;
   if(ncrit > nmeta) return 0;  // too many criteria, no match
   if(ncrit <= 0) return 1 ;    // no criteria, it is a match
   if(mask != NULL) {
-//     fprintf(stderr,"criteria, meta = ["); for(j=0 ; j<ncrit ; j++) fprintf(stderr,", %8.8x %8.8x", criteria[j], meta[j]); fprintf(stderr,"]\n");
+    if(verbose >= RSF_DIAG_DEBUG2) {
+      int j ;
+      fprintf(stderr,"criteria, meta = ["); for(j=0 ; j<ncrit ; j++) fprintf(stderr,", %8.8x %8.8x", criteria[j], meta[j]); fprintf(stderr,"]\n");
+    }
     for(i = 0 ; i < ncrit ; i++){
       if( (criteria[i] & mask[i]) != (meta[i] & mask[i]) ) {
-//         fprintf(stderr,"DEBUG: rsf_default_match, MISMATCH at %d, criteria = %8.8x, meta = %8.8x, mask = %8.8x, ncrit = %d, nmeta = %d\n",
-//                 i, criteria[i], meta[i], mask[i], ncrit, nmeta) ;
+      if(verbose >= RSF_DIAG_DEBUG2)
+        fprintf(stderr,"DEBUG2: rsf_default_match, MISMATCH at %d, criteria = %8.8x, meta = %8.8x, mask = %8.8x, ncrit = %d, nmeta = %d\n",
+                i, criteria[i], meta[i], mask[i], ncrit, nmeta) ;
         return 0 ;  // mismatch, no need to go any further
       }
     }
@@ -580,8 +635,10 @@ int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, in
       if( criteria[i] != meta[i] ) return 0 ;  // mismatch, no need to go any further
     }
   }
-//   fprintf(stderr,"DEBUG: rsf_default_match, nitems = %d, MATCH\n", nitems);
-//   fprintf(stderr,"DEBUG: rsf_default_match, MATCH O.K.\n");
+  if(verbose >= RSF_DIAG_DEBUG2) {
+    fprintf(stderr,"DEBUG2: rsf_default_match, ncrit = %d, MATCH\n", ncrit);
+    fprintf(stderr,"DEBUG2: rsf_default_match, MATCH O.K.\n");
+  }
   return 1 ;   // if we get here, there is a match
 }
 
@@ -590,7 +647,8 @@ int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int n
 {
   int i ;
   if(ncrit > nmeta) return 0;  // too many criteria, no match
-//   fprintf(stderr,"DEBUG: calling rsf_base_match, ncrit = %d\n", ncrit);
+  if(verbose >= RSF_DIAG_DEBUG2)
+    fprintf(stderr,"DEBUG2: calling rsf_base_match, ncrit = %d\n", ncrit);
   for(i = 0 ; i < ncrit ; i++){
     if( criteria[i] != meta[i] ) return 0 ;  // mismatch, no need to go any further
   }
@@ -796,7 +854,8 @@ size_t RSF_Adjust_data_record(RSF_handle h, RSF_record *r){
 
   sor = r->sor ;
   if(sor->dul == 0) return 0L ;                         // uninitialized data element size
-fprintf(stderr,"RSF_Adjust_data_record DEBUG : data_bytes = %ld, element size = %d bytes\n", data_bytes,sor->dul ) ;
+  if(verbose >= RSF_DIAG_DEBUG0)
+    fprintf(stderr,"RSF_Adjust_data_record DEBUG : data_bytes = %ld, element size = %d bytes\n", data_bytes,sor->dul ) ;
   new_size = RSF_Record_size(r->rec_meta, data_bytes) ;
   eor = r->sor + new_size - sizeof(end_of_record) ;
 
@@ -859,9 +918,11 @@ uint64_t RSF_Put_null_record(RSF_handle h, size_t record_size){
   needed = record_size ;
   if(fp->seg_max > 0){
     free_space = RSF_Available_space(h) ;
-    fprintf(stderr,"RSF_Put_null_record DEBUG : free = %ld, needed = %ld\n", free_space, needed );
+    if(verbose >= RSF_DIAG_DEBUG0)
+      fprintf(stderr,"RSF_Put_null_record DEBUG : free = %ld, needed = %ld\n", free_space, needed );
     if( free_space < needed ) {
-      fprintf(stderr,"RSF_Put_null_record DEBUG : segment overflow\n") ;
+      if(verbose >= RSF_DIAG_DEBUG0)
+        fprintf(stderr,"RSF_Put_null_record DEBUG : segment overflow\n") ;
       return 0 ;
     }
   }
@@ -1023,7 +1084,6 @@ int64_t RSF_Put_data(RSF_handle h, void *data_record,
 int64_t RSF_Get_file(RSF_handle h, int64_t key, char *alias, uint32_t **meta, uint32_t *meta_size){
   RSF_File *fp = (RSF_File *) h.p ;
   start_of_record sor ;
-  end_of_record   eor ;
   uint8_t copy_buf[1024*16] ;
   uint64_t wa, rl ;
   uint32_t *vmeta, *tempm ;
@@ -1032,7 +1092,6 @@ int64_t RSF_Get_file(RSF_handle h, int64_t key, char *alias, uint32_t **meta, ui
   char *temp0, *temp, *filename ;
   uint64_t file_size ;
   uint32_t nmeta ;
-  int i ;
   int fd ;
   off_t offset ;
   ssize_t nread, nwritten, nc, toread, towrite ;
@@ -1960,14 +2019,13 @@ fprintf(stderr,"RSF_Switch DEBUG : sparse EOF at %8.8lx\n", sparse_start + spars
 // close a RSF file
 int32_t RSF_Close_file(RSF_handle h){
   RSF_File *fp = (RSF_File *) h.p ;
-  int32_t i, slot ;
+  int32_t slot ;
   start_of_segment sos = SOS ;
   end_of_segment eos = EOS ;
   off_t offset, offset_vdir, offset_eof, cur ;
   uint64_t vdir_size, sparse_size, rl_eos ;
   ssize_t nc ;
   uint64_t sparse_start, sparse_top ;
-  int32_t write0 = 1 ;
   directory_block *purge ;
 
   if( ! (slot = RSF_Valid_file(fp)) ) return 0 ;   // something not O.K. with fp
@@ -2132,12 +2190,10 @@ void RSF_Dump(char *name, int verbose){
   ssize_t nc ;
   char *tab[] = { " NULL", " DATA", " XDAT", "[SOS]", "[EOS]", " NULL", "[VLD]", " FILE",
                   " NULL", " DATA", " XDAT", "_sos_", "_eos_", " NULL", "_vld_", " FILE"} ;
-//   int meta_dim = -1 ;
   uint64_t segsize, ssize ;
   disk_vdir *vd = NULL ;
   vdir_entry *ventry ;
   char *e ;
-  uint64_t dir_entry_size ;
   uint32_t *meta ;
   int i, j ;
   uint32_t *data ;
@@ -2149,7 +2205,6 @@ void RSF_Dump(char *name, int verbose){
   int segment = 0 ;
   uint64_t eof ;
   char buffer[4096] ;
-  char *fname ;
   char *temp, *temp0 ;
   uint32_t *tempm ;
   uint32_t nmeta ;

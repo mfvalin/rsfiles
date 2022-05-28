@@ -13,7 +13,23 @@ module rsf_mod
   integer, parameter :: RSF_version = RSF_VERSION
   character(len=*), parameter :: RSF_version_string = RSF_VERSION_STRING
 
+  integer, parameter :: RSF_diag_none = RSF_DIAG_NONE 
+  integer, parameter :: RSF_diag_error = RSF_DIAG_ERROR
+  integer, parameter :: RSF_diag_warn = RSF_DIAG_WARN
+  integer, parameter :: RSF_diag_info = RSF_DIAG_INFO
+  integer, parameter :: RSF_diag_note = RSF_DIAG_NOTE
+  integer, parameter :: RSF_diag_debug0 = RSF_DIAG_DEBUG0
+  integer, parameter :: RSF_diag_debug1 = RSF_DIAG_DEBUG1
+  integer, parameter :: RSF_diag_debug2 = RSF_DIAG_DEBUG2
+
   integer, parameter :: RSF_meta_reserved = RSF_META_RESERVED
+
+  type :: RSF_record_info
+    type(RSF_record_info_c) :: info
+    contains
+    procedure, pass :: meta => RSF_record_info_meta
+    procedure, pass :: fname => RSF_record_info_fname
+  end type RSF_record_info
 
 ! the generic interfaces that follow accept RSF_record or RSF_record_handle arguments
 ! 1 suffixed procedures accept RSF_record (a pointer to RSF_record may be obtained from RSF_New_record)
@@ -57,6 +73,38 @@ module rsf_mod
   end interface
 
  contains
+
+  function RSF_record_info_meta(this) result(dir_meta)  ! get a copy of the record metadata
+    implicit none
+    class(RSF_record_info), intent(in) :: this
+    integer(C_INT32_T), dimension(:), allocatable :: dir_meta
+
+    integer(C_INT32_T), dimension(:), pointer :: temp
+    call C_F_POINTER(this%info%meta, temp, [this%info%dir_meta])
+    dir_meta(1:this%info%dir_meta) = temp     ! auto allocate dir_meta
+  end function RSF_record_info_meta
+
+  function RSF_record_info_fname(this) result(fname)  ! get a copy of the file name associated
+    implicit none
+    class(RSF_record_info), intent(in) :: this
+    character(len=:), allocatable :: fname
+    integer :: i, nc
+    character(C_CHAR), dimension(:), pointer :: str
+
+    if(C_ASSOCIATED(this%info%fname)) then           ! is there an associated file name ?
+      call C_F_POINTER(this%info%fname, str, [4096]) ! Fortran character(len=1) array
+      nc = 0
+      do while (str(nc+1) .ne. C_NULL_CHAR .and. nc < 4096)  ! find length of C file name string
+        nc = nc + 1
+      enddo
+      allocate(character(len=nc) :: fname)           ! allocate function result with the proper length
+      do i = 1, nc
+        fname(i:i) = str(i)                          ! copy C string into Fortran string
+      enddo
+    else
+      fname = ""
+    endif
+  end function RSF_record_info_fname
 
   function RSF_Record_metadata1(r) result (meta)   ! get pointer to metadata array from record
     implicit none
