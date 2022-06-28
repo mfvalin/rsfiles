@@ -130,6 +130,27 @@ static int32_t RSF_Purge_file_slot(void *p)
 
 // =================================  utility functions =================================
 
+// generate a 32 bit record key from a 64 bit key
+// return 0 if slot number or index too large to fit
+int32_t RSF_key32(int64_t key64){
+  uint32_t index ;
+  uint32_t slot ;
+
+  index = key64 & 0xFFFFFFFFl ;       // lower 32 bits = record index
+  if( index > 0xFFFFF ) return -1 ;   // ERROR, index larger than 20 bits
+
+  slot = (key64 >> 32)  ;             // upper 32 bits = slot number
+  if(slot > 0xFFF)  return -1 ;       // ERROR, slot number larger thatn 12 bits
+  return (slot << 20) | index ;
+}
+
+// generate a 64 bit record key from a 32 bit key
+int64_t RSF_key64(int32_t key32){
+  uint64_t key64 = (key32 >> 12) & 0xFFF ;    // slot number
+  key64 <<= 32 ;
+  key64 |= (key32 & 0xFFFFF) ;                // add record index
+  return key64 ;
+}
 // check if fp points to a valid RSF_File structure
 // fp     pointer to RSF_File structure
 // return slot number + 1 if valid structure, otherwise return 0
