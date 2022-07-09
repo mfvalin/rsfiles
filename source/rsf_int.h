@@ -395,6 +395,7 @@ struct RSF_File{                 // internal (in memory) structure for access to
   int32_t  slot ;                // file slot number of file (-1 if invalid)
   uint32_t nwritten ;            // number of records written (useful when closing after write)
   int32_t  lock ;                // used to lock the file for thread safety
+  int32_t iun ;                  // eventual Fortran file number
   uint16_t rec_meta ;            // record metadata size (uint32_t units)
   uint16_t dir_meta ;            // directory entry metadata size (uint32_t units)
   uint16_t mode ;                // file mode (RO/RW/AP/...)
@@ -438,6 +439,7 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
   fp->slot       = -1 ;
 //   fp->nwritten   =  0 ;
 //   fp->lock       =  0 ;
+//   fp->iun       =  0 ;
 //   fp->rec_meta       =  0 ;
 //   fp->dir_meta       =  0 ;
 //   fp->mode       =  0 ;

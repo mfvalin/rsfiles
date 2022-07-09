@@ -130,25 +130,50 @@ static int32_t RSF_Purge_file_slot(void *p)
 
 // =================================  utility functions =================================
 
-// generate a 32 bit record key from a 64 bit key
-// return 0 if slot number or index too large to fit
+// 32 <-> 64 bit key converter code will need to be adjusted so that 32 bit keys can be recognized
+// as XDF keys or RSF keys
+// XDF key > -1 is a valid search criterion
+//
+// 1 21 1 9 ?  ( sign / index / 1 / slot )
+// 1 21 10  ?  ( 1 / index / slot )
+//
+// current choice below (to be revised as needed)
+// 1 1 20 10 ? (sign / 1 / index / slot ) (30 bit effective key, 1024 files, up to 1M records)
+//
+//      XDF HANDLE
+//       sign #page #record index
+//         1    12     9     10
+// #define MAKE_RND_HANDLE(pageno,recno,file_index) ((file_index &0x3FF) | ((recno & 0x1FF)<<10) | ((pageno & 0xFFF)<<19))
+// (it is assumed that page number will not exceed 2047 (11 bits), i.e. bit 30 will be 0 for a valid XDF handle)
+//
+// generate a 32 bit record key (slot:12 , index : 20)
+// from a 64 bit key (slot:32, index:32)
+// return -1 in case of error
+// code may have to be added to deal properly with negative key64 values
+// code may be added to check that slot and index make sense
 int32_t RSF_key32(int64_t key64){
   uint32_t index ;
   uint32_t slot ;
 
   index = key64 & 0xFFFFFFFFl ;       // lower 32 bits = record index
-  if( index > 0xFFFFF ) return -1 ;   // ERROR, index larger than 20 bits
+  if( index > 0xFFFFF )               // ERROR, index larger than 20 bits
+    return (1 << 31);                 // return huge negative value
 
   slot = (key64 >> 32)  ;             // upper 32 bits = slot number
-  if(slot > 0xFFF)  return -1 ;       // ERROR, slot number larger thatn 12 bits
-  return (slot << 20) | index ;
+  if(slot > 0x3FF)                    // ERROR, slot number larger than 10 bits
+    return (1 << 31) ;                // return huge negative value
+
+  return (index << 10) | slot | (1 << 30) ;  // index, slot, and bit 30 set to 1 to indicate RSF handle
 }
 
-// generate a 64 bit record key from a 32 bit key
+// generate a 64 bit record key  (slot:32, index:32)
+// from a 32 bit key (slot:12 , index : 20)
+// code may have to be added to deal properly with negative key32 values
+// code may be added to check that slot and index make sense
 int64_t RSF_key64(int32_t key32){
-  uint64_t key64 = (key32 >> 12) & 0xFFF ;    // slot number
-  key64 <<= 32 ;
-  key64 |= (key32 & 0xFFFFF) ;                // add record index
+  uint64_t key64 = (key32 & 0x3FF) ;          // slot number (10 bits)
+  key64 <<= 32 ;                              // shift to proper position
+  key64 |= ((key32 >> 10) & 0xFFFFF)) ;       // add 20 bit record index
   return key64 ;
 }
 // check if fp points to a valid RSF_File structure
