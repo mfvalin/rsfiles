@@ -38,6 +38,8 @@
 // DT_08 ... DT_64  : length of data elements in record (for endianness management) (1 2 4 8 bytes)
 #endif
 
+#include <xdf_rsf_error_codes.h>
+
 #if ! defined(RSF_VERSION)
 
 #define RSF_VERSION_STRING "1.0.0"
@@ -176,7 +178,7 @@ typedef struct{        // this struct MUST BE TREATED AS READ-ONLY
 // } RSF_record_handle ;
 
 // metadata matching function (normally supplied by application)
-typedef int32_t RSF_Match_fn(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta) ;
+typedef int32_t RSF_Match_fn(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta, int reject_a_priori) ;
 
 #endif
 
@@ -197,24 +199,24 @@ interface
 #endif
 
 #if defined(IN_FORTRAN_CODE)
-  function RSF_Default_match(criteria, meta, mask, ncrit, nmeta) result(status) bind(C,name='RSF_Default_match')
+  function RSF_Default_match(criteria, meta, mask, ncrit, nmeta, reject_a_priori) result(status) bind(C,name='RSF_Default_match')
     import :: C_INT32_T
     implicit none
     integer(C_INT32_T), intent(IN), dimension(*) :: criteria, meta, mask
-    integer(C_INT32_T), intent(IN), value :: ncrit, nmeta
+    integer(C_INT32_T), intent(IN), value :: ncrit, nmeta, reject_a_priori
     integer(C_INT32_T) :: status
   end function RSF_Default_match
 
-  function RSF_Base_match(criteria, meta, mask, ncrit, nmeta) result(status) bind(C,name='RSF_Base_match')
+  function RSF_Base_match(criteria, meta, mask, ncrit, nmeta, reject_a_priori) result(status) bind(C,name='RSF_Base_match')
     import :: C_INT32_T
     implicit none
     integer(C_INT32_T), intent(IN), dimension(*) :: criteria, meta, mask
-    integer(C_INT32_T), intent(IN), value :: ncrit, nmeta
+    integer(C_INT32_T), intent(IN), value :: ncrit, nmeta, reject_a_priori
     integer(C_INT32_T) :: status
   end function RSF_Base_match
 #else
-  int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta) ;
-  int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta) ;  // ignores mask
+  int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta, int reject_a_priori) ;
+  int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta, int reject_a_priori) ;  // ignores mask
 #endif
 
 #if defined(IN_FORTRAN_CODE)

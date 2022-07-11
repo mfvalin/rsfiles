@@ -173,7 +173,7 @@ int32_t RSF_key32(int64_t key64){
 int64_t RSF_key64(int32_t key32){
   uint64_t key64 = (key32 & 0x3FF) ;          // slot number (10 bits)
   key64 <<= 32 ;                              // shift to proper position
-  key64 |= ((key32 >> 10) & 0xFFFFF)) ;       // add 20 bit record index
+  key64 |= ((key32 >> 10) & 0xFFFFF) ;        // add 20 bit record index
   return key64 ;
 }
 // check if fp points to a valid RSF_File structure
@@ -376,16 +376,23 @@ static int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uin
   uint32_t *meta ;
   uint32_t rt0, class0, class_meta ;
   RSF_Match_fn *scan_match = NULL ;
-  uint32_t mask0 = 0xFFFFFFFF ;   // default mask0 is all bits active
+//   uint32_t mask0 = 0xFFFFFFFF ;   // default mask0 is all bits active
+  uint32_t mask0 = (~0) ;   // default mask0 is all bits active
   char *error ;
+//   int64_t badkey = ERR_NOT_FOUND ;
   int64_t badkey = -1 ;
+  int reject_a_priori ;
 
   if( ! (slot = RSF_Valid_file(fp)) ){
     error = "invalid file reference" ;
+//  using appropriate error code borrowed from XDF for consistency purposes
+//     badkey = ERR_NO_FILE ;
     goto ERROR ;      // something wrong with fp
   }
   if( (key0 != 0) && ((key0 >> 32) != slot) ) {
     error = "inconsistent file slot" ;
+//  using appropriate error code borrowed from XDF for consistency purposes
+//     badkey = ERR_BAD_UNIT ;
     goto ERROR ;      // slot in key different from file table slot
   }
   // slot is origin 1 (zero is invalid)
@@ -395,6 +402,8 @@ static int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uin
   index = key0 & 0x7FFFFFFF ;               // starting ordinal for search (one more than what key0 points to)
   if(index >= fp->vdir_used) {
     error = "beyond last record" ;
+//  using appropriate error code borrowed from XDF for consistency purposes
+//     badkey = ERR_NOT_FOUND ;
     goto ERROR ;   // beyond last record
   }
 
@@ -416,9 +425,11 @@ static int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uin
     // class0 == 0 at this point means record class will not be used for selection
   }
 
-  scan_match = fp->matchfn ;                // get metadata match function associated to this file
-  if(scan_match == NULL)
-    scan_match = &RSF_Default_match ;       // no function associated, use default function
+  // get metadata match function associated to this file, if none associated, use default function
+  scan_match = (fp->matchfn != NULL) ? fp->matchfn : &RSF_Default_match ;
+//   scan_match = fp->matchfn ;                // get metadata match function associated to this file
+//   if(scan_match == NULL)
+//     scan_match = &RSF_Default_match ;       // no function associated, use default function
 
   if(verbose >= RSF_DIAG_DEBUG2) {
     int i ;
@@ -429,25 +440,34 @@ static int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uin
   for( ; index < fp->vdir_used ; index++ ){ // loop over records in directory starting from requested position
     ventry = fp->vdir[index] ;              // get entry
     if(lcrit == 0) goto MATCH ;             // no criteria specified, everything matches
-    meta = ventry->meta ;                   // entry metadata
+    meta = ventry->meta ;                   // entry metadata from directory
 //     fprintf(stderr,"meta[%2d] ",index) ;for(i = 0 ; i < lcrit ; i++) fprintf(stderr," %8.8x", meta[i]) ; fprintf(stderr,"\n") ;
-    // the first element of meta, mask, criteria will be processed here, and not sent to matching function
-    if( (rt0 != 0) && ( rt0 != (meta[0] & 0xFF) ) )      continue ;    // record type mismatch
+    // the first element of meta, mask, criteria is pre-processed here, and sent to matching function
+    reject_a_priori = (rt0 != 0) && ( rt0 != (meta[0] & 0xFF) ) ;
+//     if( reject_a_priori )      continue ;    // record type mismatch
 
     class_meta = meta[0] >> 8 ;                                        // get class of record from meta[0]
-    if( (class0 != 0) && ( (class0 & class_meta) == 0 ) ) continue ;   // class mismatch, no bit in common
+    reject_a_priori = reject_a_priori | ( (class0 != 0) && ( (class0 & class_meta) == 0 ) ) ;
+//     if( reject_a_priori ) continue ;   // class mismatch, no bit in common
 
     dir_meta = DIR_ML(ventry->ml) ;                    // length of directory metadata
     // more criteria than metadata or less criteria than metadata will be dealt with by the matching function
     // the first element of criteria, meta, mask (if applicable) will be ignored
     // dir_meta is the number of metadata elements
-    if((*scan_match)(criteria+1, meta+1, mask ? mask+1 : NULL, lcrit-1, dir_meta-1) == 1 ){   // do we have a match ?
+    // NOTE: we may want to pass reject_a_priori and all criteria, mask and directory metadata
+    // to the matching function in case it makes use of it
+    // therefore NOT BUMPING pointers and NOT DECREASING sizes
+    if((*scan_match)(criteria, meta, mask , lcrit, dir_meta, reject_a_priori) == 1 ){   // do we have a match ?
       goto MATCH ;
     }
+//     if((*scan_match)(criteria+1, meta+1, mask ? mask+1 : NULL, lcrit-1, dir_meta-1, reject_a_priori) == 1 ){   // do we have a match ?
+//       goto MATCH ;
+//     }
   }
-//   badkey = key + fp->vdir_used + 1 ;   // DEBUG : falling through, return an index one beyond last record
+  // falling through, return an invalid key
   error = "no match found" ;
-
+//  using appropriate error code borrowed from XDF for consistency purposes
+//     badkey = ERR_NOT_FOUND ;
 ERROR :
   if(verbose >= RSF_DIAG_DEBUG0) 
     fprintf(stderr,"RSF_Scan_vdir ERROR : key = %16.16lx, len = %d,  %s\n", key0, lcrit, error) ;
@@ -651,32 +671,48 @@ static int64_t RSF_Write_vdir(RSF_File *fp){
 
 // =================================  user callable rsf file functions =================================
 
-// match criteria and meta where mask has bits set to 1
-// where mask has bits set to 0, a don't care condition is assumed
-// if mask == NULL, it is not used
-// criteria and mask have the same dimension : ncrit
-// meta dimension nmeta my be larger than ncrit
-// ncrit > nmeta is undefined and considered as a NO MATCH for now
-// returns 0 in case of no match, 1 otherwise
-int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta)
+// default directory match function (user overridable)
+//
+// match the first ncrit words of criteria and meta where mask has bits set to 1
+// where mask has bits set to 0, a match is assumed
+// if mask == NULL, a direct binary criteria vs meta match is used, as if mask was all 1s
+// criteria and mask MUST have the same dimension : ncrit
+// meta dimension nmeta may be larger than ncrit (only the first ncrit words will be considered)
+// ncrit > nmeta has an undefined behavior and considered as a NO MATCH for now
+// return : 1 in case of match 0,  in case of no match
+int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta, int reject_a_priori)
 {
   int i ;
+
+  // NOTE : first item in criteria / meta / mask no longer skipped  by caller
+  //        it is ignored here, and reject_a_priori is used as is reflects 
+  //        the condition derived from the first element
+  //        the USER SUPPLIED replacement for this function may act otherwise
+  if(reject_a_priori) return 0 ; // the user supplied function might act differently and re-analize criteria[0] meta[0] mask[0]
+  ncrit-- ;
+  nmeta-- ;
+  criteria++ ;
+  meta++ ;
+  if(mask != NULL) mask++ ;
+
   if(ncrit > nmeta) return 0;  // too many criteria, no match
-  if(ncrit <= 0) return 1 ;    // no criteria, it is a match
-  if(mask != NULL) {
+  if(ncrit <= 0) return 1 ;    // no criteria, we assume a match
+
+  if(mask != NULL) {           // caller supplied a mask
     if(verbose >= RSF_DIAG_DEBUG2) {
       int j ;
       fprintf(stderr,"criteria, meta = ["); for(j=0 ; j<ncrit ; j++) fprintf(stderr,", %8.8x %8.8x", criteria[j], meta[j]); fprintf(stderr,"]\n");
     }
     for(i = 0 ; i < ncrit ; i++){
       if( (criteria[i] & mask[i]) != (meta[i] & mask[i]) ) {
-      if(verbose >= RSF_DIAG_DEBUG2)
+      if(verbose >= RSF_DIAG_DEBUG2) {
         fprintf(stderr,"DEBUG2: rsf_default_match, MISMATCH at %d, criteria = %8.8x, meta = %8.8x, mask = %8.8x, ncrit = %d, nmeta = %d\n",
                 i, criteria[i], meta[i], mask[i], ncrit, nmeta) ;
-        return 0 ;  // mismatch, no need to go any further
+      }
+      return 0 ;  // mismatch, no need to go any further
       }
     }
-  }else{
+  }else{   // caller did not supply a mask
     for(i = 0 ; i < ncrit ; i++){
       if( criteria[i] != meta[i] ) return 0 ;  // mismatch, no need to go any further
     }
@@ -689,16 +725,20 @@ int32_t RSF_Default_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, in
 }
 
 // same as RSF_Default_match but ignores mask
-int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta)
+int32_t RSF_Base_match(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta, int reject_a_priori)
 {
   int i ;
-  if(ncrit > nmeta) return 0;  // too many criteria, no match
-  if(verbose >= RSF_DIAG_DEBUG2)
-    fprintf(stderr,"DEBUG2: calling rsf_base_match, ncrit = %d\n", ncrit);
-  for(i = 0 ; i < ncrit ; i++){
-    if( criteria[i] != meta[i] ) return 0 ;  // mismatch, no need to go any further
-  }
-  return 1 ;   // if we get here, we have a match
+
+  return RSF_Default_match(criteria, meta, NULL, ncrit, nmeta, reject_a_priori) ;
+
+//   if(ncrit > nmeta) return 0;  // too many criteria, no match
+//   if(verbose >= RSF_DIAG_DEBUG2) {
+//     fprintf(stderr,"DEBUG2: calling rsf_base_match, ncrit = %d\n", ncrit);
+//   }
+//   for(i = 0 ; i < ncrit ; i++){
+//     if( criteria[i] != meta[i] ) return 0 ;  // mismatch, no need to go any further
+//   }
+//   return 1 ;   // if we get here, we have a match
 }
 
 // is this a vlid data record structure ?
@@ -1575,6 +1615,47 @@ ERROR:
   return info0 ;
 }
 
+// USER CALLABLE FUNCTION
+// read nelem items of size itemsize into buf from  RSF file at "address"
+// return number of items read
+// this function assumes that the user got address / nelem*itemsize from the proper RSF functions
+ssize_t RSF_Read(RSF_handle h, void *buf, int64_t address, int64_t nelem, int itemsize) {
+  RSF_File *fp = (RSF_File *) h.p ;
+  ssize_t nbytes ;
+  int32_t fslot = RSF_Valid_file(fp) ;
+  size_t count = nelem * itemsize ;
+  off_t offset ;
+
+  if(fslot == 0) return ERR_NO_FILE ;
+
+  offset = lseek(fp->fd, offset = address, SEEK_SET) ;   // start of data to read in file
+  nbytes = read(fp->fd, buf, count) ;
+  fp->cur_pos = offset + nbytes ;                        // current position set after data read
+  fp->last_op = OP_READ ;                                // last operation was a read operation
+
+  return nbytes / itemsize ;
+}
+
+// write nelem items of size itemsize from buf into  RSF file at "address"
+// return number of items written
+// THIS CODE WOULD BE TOTALLY UNSAFE and is there only as an axample
+// ssize_t RSF_Write(RSF_handle h, void *buf, int64_t address, int64_t nelem, int64_t itemsize) {
+//   RSF_File *fp = (RSF_File *) h.p ;
+//   ssize_t nbytes ;
+//   int32_t fslot = RSF_Valid_file(fp) ;
+//   size_t count = nelem * itemsize ;
+//   off_t offset ;
+// 
+//   if(fslot == 0) return ERR_NO_FILE ;
+// 
+//   offset = lseek(fp->fd, offset = address, SEEK_SET) ;   // start of record in file
+//   nbytes = write(fp->fd, buf, count) ;
+//   fp->cur_pos = offset + nbytes ;                        // current position set after data
+//   fp->last_op = OP_WRITE ;                                // last operation was a write operation
+// 
+//   return nbytes / itemsize ;
+// }
+
 // key from RSF_Lookup, RSF_Scan_vdir
 // returns a RSF_record_handle (NULL in case or error)
 // size of data and metadata returned if corresponding pointers are not NULL
@@ -2039,7 +2120,7 @@ int32_t RSF_Close_compact_segment(RSF_handle h){
       fp->dir_read = 0 ;                                        // all directory entries will be written
       fprintf(stderr,"RSF_Close_compact_segment DEBUG : fusing all segments into one\n") ;
     }
-    return 1 ;
+    return 1 ;   // NO ERROR
   }
 
   // write directory, but move dir_read to avoid writng same record directory entries again
@@ -2077,7 +2158,7 @@ int32_t RSF_Close_compact_segment(RSF_handle h){
   cur = lseek(fp->fd, fp->seg_base , SEEK_SET) ;
   nc = write(fp->fd, &sos, sizeof(start_of_segment)) ;      // rewrite start of active segment
 
-  return 1 ;
+  return 1 ;   // NO ERROR
 }
 
 // close a RSF sparse file segment, allocate a new one of the same size, switch file to new segment
