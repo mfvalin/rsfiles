@@ -1,87 +1,48 @@
 
 #if ! defined(ERR_NO_FILE)
-#if ! defined(IN_FORTRAN_CODE)
-// Error codes originally from XDF and used also by RSF */
-// (codes -1 to -23 taken from previous xdf version when applicable) */
-// if ! defined(IN_FORTRAN_CODE) / endif sequences because Fortran code may ingest this file
-//! NO ERROR
-#endif
+/*
+Error codes originally from XDF and used also by RSF
+(codes -1 to -23 taken from previous xdf version when applicable)
+*/
+/* NO ERROR */
 #define ERR_OK 0
-#if ! defined(IN_FORTRAN_CODE)
-//! File is not open or does not exist
-#endif
+/* File is not open or does not exist */
 #define ERR_NO_FILE -1
-#if ! defined(IN_FORTRAN_CODE)
-//! File table is full
-#endif
+/* File table is full */
 #define ERR_FTAB_FULL -3
-#if ! defined(IN_FORTRAN_CODE)
-//! Short read, truncated record
-#endif
+/* Short read, truncated record */
 #define ERR_SHORT_READ -4
-#if ! defined(IN_FORTRAN_CODE)
-//! Invalid unit number
-#endif
+/* Invalid unit number */
 #define ERR_BAD_UNIT -5
-#if ! defined(IN_FORTRAN_CODE)
-//! Src and dest files not compatible
-#endif
+/* Src and dest files not compatible */
 #define ERR_NOT_COMP -6
-#if ! defined(IN_FORTRAN_CODE)
-//! No write permission
-#endif
+/* No write permission */
 #define ERR_NO_WRITE -7
-#if ! defined(IN_FORTRAN_CODE)
-//! Invalid page number
-#endif
+/* Invalid page number */
 #define ERR_BAD_PAGENO -8
-#if ! defined(IN_FORTRAN_CODE)
-//! Invalid handle
-#endif
+/* Invalid handle */
 #define ERR_BAD_HNDL -9
-#if ! defined(IN_FORTRAN_CODE)
-//! Special record with idtyp = 0
-#endif
+/* Special record with idtyp = 0 */
 #define ERR_SPECIAL -10
-#if ! defined(IN_FORTRAN_CODE)
-//! Deleted record
-#endif
+/* Deleted record */
 #define ERR_DELETED -11
-#if ! defined(IN_FORTRAN_CODE)
-//! Search target not found
-#endif
+/* Search target not found */
 #define ERR_NOT_FOUND -12
-#if ! defined(IN_FORTRAN_CODE)
-//! Error in record initialisation
-#endif
+/* Error in record initialisation */
 #define ERR_BAD_INIT -13
-#if ! defined(IN_FORTRAN_CODE)
-//! Invalid datyp
-#endif
+/* Invalid datyp */
 #define ERR_BAD_DATYP -16
-#if ! defined(IN_FORTRAN_CODE)
-//! Addressing error (not a multiple of 64)
-#endif
+/* Addressing error (not a multiple of 64) */
 #define ERR_BAD_ADDR -18
-#if ! defined(IN_FORTRAN_CODE)
-//! Dimension of buf too small
-#endif
+/* Dimension of buf too small */
 #define ERR_BAD_DIM -19
-#if ! defined(IN_FORTRAN_CODE)
-//! Invalid option name or value
-#endif
+/* Invalid option name or value */
 #define ERR_BAD_OPT -20
-#if ! defined(IN_FORTRAN_CODE)
-//! File already in used in write mode
-#endif
+/* File already in used in write mode */
 #define ERR_STILL_OPN -21
-#if ! defined(IN_FORTRAN_CODE)
-//! Read only file
-#endif
+/* Read only file */
 #define ERR_RDONLY -22
-#if ! defined(IN_FORTRAN_CODE)
-//! Invalid header length
-#endif
+/* Invalid header length */
 #define ERR_BAD_LEN -23
 
 #endif
