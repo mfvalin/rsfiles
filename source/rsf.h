@@ -1,4 +1,3 @@
-#if 0
 /*
  * Copyright (C) 2021  Environnement et Changement climatique Canada
  *
@@ -14,29 +13,35 @@
  *
  * Author:
  *     M. Valin,   Recherche en Prevision Numerique, 2021
- */
+*/
 
-// Random Segmented Files PUBLIC interface
-// RSF_RO implies that the file MUST exist
-// RSF_RW implies create file if it does not exist
-// RSF_AP implies that the file MUST exist and will be written into (implies RSF_RW)
-// RSF_NSEG means that the file will be mostly "write" (only new sparse segment will be accessible)
-// RSF_PSEG means parallel segment mode (mostly write, read from local segment only)
-// RSF_FUSE means consolidate segments into ONE (ignored if RSF_RW not set or new file)
-// otherwise the last segment gets extended and the other segments remain untouched
+/*
+ Random Segmented Files PUBLIC interface
+ RSF_RO implies that the file MUST exist
+ RSF_RW implies create file if it does not exist
+ RSF_AP implies that the file MUST exist and will be written into (implies RSF_RW)
+ RSF_NSEG means that the file will be mostly "write" (only new sparse segment will be accessible)
+ RSF_PSEG means parallel segment mode (mostly write, read from local segment only)
+ RSF_FUSE means consolidate segments into ONE (ignored if RSF_RW not set or new file)
+ otherwise the last segment gets extended and the other segments remain untouched
 
-// RSF_NSEG and RSF_PSEG : deferred implementation
+RSF_NSEG and RSF_PSEG : deferred implementation
 #define RSF_NSEG    16
 #define RSF_PSEG    32
 
-// RT_DATA_CLASS  : class for "vanilla" data records
-// RT_FILE_CLASS  : class for file container records
+RT_DATA_CLASS  : class for "vanilla" data records
+RT_FILE_CLASS  : class for file container records
 
-// RSF_META_RESERVED : number of metadata items reserved for internal use
-// meta[0] : used for record class mask
+RSF_META_RESERVED : number of metadata items reserved for internal use
+meta[0] : used for record class mask
 
-// DT_08 ... DT_64  : length of data elements in record (for endianness management) (1 2 4 8 bytes)
+DT_08 ... DT_64  : length of data elements in record (for endianness management) (1 2 4 8 bytes)
+*/
+#if defined(__GFORTRAN__) && ! defined(IN_FORTRAN_CODE)
+#define IN_FORTRAN_CODE
 #endif
+
+/* the following defines are used in both Fortran and C */
 
 #include <xdf_rsf_error_codes.h>
 
@@ -49,7 +54,10 @@
 #define RSF_AP       8
 #define RSF_FUSE  1024
 
-#define RSF_META_RESERVED 1
+/* meta[0] used for Record Type (RT) and Record Class */
+/* meta[1] possibly used for data map length */
+/* #define RSF_META_RESERVED 1 */
+#define RSF_META_RESERVED 2
 
 #define RT_NULL    0
 #define RT_DATA    1
@@ -79,7 +87,12 @@
 #define RSF_DIAG_DEBUG1  7
 #define RSF_DIAG_DEBUG2  8
 
+#define RSF_KEY32  1
+#define XDF_KEY32  0
+#define BAD_KEY32 -1
+
 #if defined(IN_FORTRAN_CODE)
+! Fortran definitions
 
   type, BIND(C) :: RSF_handle
     private
@@ -90,7 +103,8 @@
     private                           ! MUST REFLECT EXACTLY C struct RSF_record (see below)
     type(C_PTR) :: sor                ! pointer to start of record descriptor (not used by Fortran)
     type(C_PTR) :: meta               ! pointer to integer metadata array
-    type(C_PTR) :: data               ! pointer to start of integer data array
+    type(C_PTR) :: data               ! pointer to start of integer data array (data map or data)
+!    type(C_PTR) :: chunks             ! pointer to start of integer data chunks array
     type(C_PTR) :: eor                ! pointer to end of record descriptor (not used by Fortran)
     integer(C_INT64_T) :: data_size   ! data payload size in bytes (may remain 0 in unmanaged records)
     integer(C_INT64_T) :: max_data    ! maximum data payload size in bytes
@@ -98,7 +112,7 @@
     integer(C_INT16_T) :: dir_meta    ! directory metadata size in 32 bit units (max 0xFFFF)
     integer(C_INT16_T) :: rec_meta    ! record metadata size in 32 bit units (max 0xFFFF)
     integer(C_INT16_T) :: elem_size   ! length of data elements (1/2/4/8 bytes) (endianness management)
-    integer(C_INT16_T) :: reserved    ! alignment
+    integer(C_INT16_T) :: reserved    ! alignment (maybe use for data map length ?)
     ! dynamic data array follows, see C struct
   end type
 
@@ -116,6 +130,7 @@
     integer(C_INT16_T) dir_meta0      ! size excluding file name and file length in file containers
     integer(C_INT16_T) rec_meta       ! record metadata size in uint32_t units
     integer(C_INT16_T) elem_size      ! length of data elements (1/2/4/8 bytes) (endianness management)
+!   NOTE: add something for data map length ?
   end type
 
   type, BIND(C) :: RSF_record_handle
@@ -127,6 +142,7 @@
     !  r%meta, r%data, r%meta_size, r%data_size, etc ... now accessible in module procedures
   end type
 #else
+// C includes and definitions
 
 #include <stdio.h>
 #include <stdint.h>
@@ -146,7 +162,8 @@ typedef struct{   // this struct only contains a pointer to the actual full cont
 typedef struct{
   void     *sor ;      // start of record address ( RSF_record.d )
   uint32_t *meta ;     // pointer to metadata array ( sor - sizeof(sor) )
-  void     *data ;     // pointer to start of data payload array
+  void     *data ;     // pointer to start of data payload array (data map or data)
+//   void     *chunks ;    // pointer to start of data chunks
   void     *eor ;      // end of record address ( (void *) RSF_record.d + max_data )
   uint64_t data_size ; // actual data size in bytes (may remain 0 in unmanaged records)
   uint64_t max_data ;  // maximum data payload size in bytes
@@ -154,7 +171,7 @@ typedef struct{
   uint16_t dir_meta ;  // directory metadata size in uint32_t units
   uint16_t rec_meta ;  // record metadata size in uint32_t units
   uint16_t elem_size ; // length of data elements in d[] (1/2/4/8 bytes) (endianness management)
-  uint16_t reserved ;  // alignment
+  uint16_t reserved ;  // alignment (maybe use for data map length ?)
   uint8_t  d[] ;       // dynamic data array (bytes)
 } RSF_record ;
 
@@ -171,6 +188,7 @@ typedef struct{        // this struct MUST BE TREATED AS READ-ONLY
   uint16_t dir_meta0 ; // size excluding file name and file length in file containers
   uint16_t rec_meta ;  // record metadata size in uint32_t units
   uint16_t elem_size ; // length of data elements (1/2/4/8 bytes) (endianness management)
+// NOTE: add something for data map length ?
 } RSF_record_info ;
 
 // typedef struct{   // this struct only contains a pointer to the actual composite record

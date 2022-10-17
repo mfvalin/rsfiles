@@ -133,20 +133,24 @@ static int32_t RSF_Purge_file_slot(void *p)
 // 32 <-> 64 bit key converter code will need to be adjusted so that 32 bit keys can be recognized
 // as XDF keys or RSF keys
 // XDF key > -1 is a valid search criterion
-//
-// 1 21 1 9 ?  ( sign / index / 1 / slot )
-// 1 21 10  ?  ( 1 / index / slot )
+// a negative value is invalid
 //
 // current choice below (to be revised as needed)
 // 1 1 20 10 ? (sign / 1 / index / slot ) (30 bit effective key, 1024 files, up to 1M records)
+// slot number : lower 10 bits
+// index       : bits 10->29
+// XDF marker  : bit 30 (XDF key if 0, RSF key if 1)
+// invalid     : bit 31 (nonzero = invalid key)
 //
-//      XDF HANDLE
-//       sign #page #record index
-//         1    12     9     10
+// XDF HANDLE
+//    sign page_no record_index file_index
+//      1     12         9         10
 // #define MAKE_RND_HANDLE(pageno,recno,file_index) ((file_index &0x3FF) | ((recno & 0x1FF)<<10) | ((pageno & 0xFFF)<<19))
-// (it is assumed that page number will not exceed 2047 (11 bits), i.e. bit 30 will be 0 for a valid XDF handle)
+// (it will be assumed that page number will not exceed 2047 (11 bits), i.e. bit 30 will be 0 for a valid XDF handle)
+// in the case of a valid XDF key, recno is expected to be <= 255
 //
-// generate a 32 bit record key (slot:12 , index : 20)
+
+// generate a 32 bit record key (sign:1, one:1 , index : 20, slot:10)
 // from a 64 bit key (slot:32, index:32)
 // return -1 in case of error
 // code may have to be added to deal properly with negative key64 values
@@ -166,16 +170,28 @@ int32_t RSF_key32(int64_t key64){
   return (index << 10) | slot | (1 << 30) ;  // index, slot, and bit 30 set to 1 to indicate RSF handle
 }
 
+// return 1 for a valid 32 bit RSF key
+// return 0 for a possibly valid 32 bit XDF key
+// return -1 if invalid 32 bit key
+int32_t RSF_key32_type(int32_t key32){
+  if(key32 < 0) return BAD_KEY32 ;
+  return (key32 >> 30) ? RSF_KEY32 : XDF_KEY32 ;
+}
+
 // generate a 64 bit record key  (slot:32, index:32)
-// from a 32 bit key (slot:12 , index : 20)
+// from a 32 bit RSF key (sign:1, one:1 , index : 20, slot:10)
 // code may have to be added to deal properly with negative key32 values
 // code may be added to check that slot and index make sense
+// an error should be returned if bit 30 is 0, i.e. ((key32 >> 30) & 1) == 0
 int64_t RSF_key64(int32_t key32){
   uint64_t key64 = (key32 & 0x3FF) ;          // slot number (10 bits)
+//   if(key32 < 0) return ERR_BAD_HNDL ;         // invalid key (negative)
+//   if(key32 >> 30 == 0) return ERR_BAD_HNDL ;  // not a valid rsf key (bit 30 off)
   key64 <<= 32 ;                              // shift to proper position
   key64 |= ((key32 >> 10) & 0xFFFFF) ;        // add 20 bit record index
   return key64 ;
 }
+
 // check if fp points to a valid RSF_File structure
 // fp     pointer to RSF_File structure
 // return slot number + 1 if valid structure, otherwise return 0
@@ -183,7 +199,7 @@ static int32_t RSF_Valid_file(RSF_File *fp){
   if(fp == NULL) {
     if(verbose >= RSF_DIAG_ERROR) 
       fprintf(stderr,"RSF_Valid_file ERROR: file handle is NULL\n");
-    return 0 ;                   // NULL pointer
+    return 0 ;                   // fp is a NULL pointer
   }
   if(fp->fd < 0) {
     if(verbose >= RSF_DIAG_ERROR) 
@@ -443,11 +459,11 @@ static int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uin
     meta = ventry->meta ;                   // entry metadata from directory
 //     fprintf(stderr,"meta[%2d] ",index) ;for(i = 0 ; i < lcrit ; i++) fprintf(stderr," %8.8x", meta[i]) ; fprintf(stderr,"\n") ;
     // the first element of meta, mask, criteria is pre-processed here, and sent to matching function
-    reject_a_priori = (rt0 != 0) && ( rt0 != (meta[0] & 0xFF) ) ;
+    reject_a_priori = (rt0 != 0) && ( rt0 != (meta[0] & 0xFF) ) ;    // record type mismatch ?
 //     if( reject_a_priori )      continue ;    // record type mismatch
 
     class_meta = meta[0] >> 8 ;                                        // get class of record from meta[0]
-    reject_a_priori = reject_a_priori | ( (class0 != 0) && ( (class0 & class_meta) == 0 ) ) ;
+    reject_a_priori = reject_a_priori | ( (class0 != 0) && ( (class0 & class_meta) == 0 ) ) ;   // class mismatch ?
 //     if( reject_a_priori ) continue ;   // class mismatch, no bit in common
 
     dir_meta = DIR_ML(ventry->ml) ;                    // length of directory metadata
@@ -1044,6 +1060,7 @@ uint64_t RSF_Put_null_record(RSF_handle h, size_t record_size){
 // element_size is the length in bytes of the data elements (for endianness management)
 // if meta is NULL, record MUST be a pointer to a pre allocated record ( RSF_record ), rec_meta and dir_meta are ignored
 // RSF_Adjust_data_record will be called if record is not NULL
+// NOTE: do we want to add a datamap array (-1 terminated) when not using a record
 int64_t RSF_Put_chunks(RSF_handle h, RSF_record *record, 
                       uint32_t *meta, uint32_t rec_meta, uint32_t dir_meta, 
                       void **chunks, size_t *chunk_size, int nchunks, int element_size){

@@ -60,8 +60,12 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
 // +----+-------+----+-------+-------+-------+-----------------------------------+-------+-------+----+-------+----+
 // data record
 // +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
-// |    |       |    |       |       |       |   META   |       DATA             |       |       |    |       |    |
+// |    |       |    |       |       |       |  RMETA   |       DATA             |       |       |    |       |    |
 // +----+-------+----+-------+-------+-------+----------+------------------------+-------+-------+----+-------+----+
+// data record with data map
+// +----+-------+----+-------+-------+-------+----------+------+-----------------+-------+-------+----+-------+----+
+// |    |       |    |       |       |       |  RMETA   | DMAP |      DATA       |       |       |    |       |    |
+// +----+-------+----+-------+-------+-------+----------+------+-----------------+-------+-------+----+-------+----+
 // directory record
 // +----+-------+----+-------+-------+-------+-----------------------------------+-------+-------+----+-------+----+
 // |    |       |    |       |       |       |             DIRECTORY             |       |       |    |       |    |
@@ -83,8 +87,15 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
 //         DUL  ( 8 bits) Data Unit Length (0/1/2/4/8 bytes) (used for Endianness management)
 // RT    : record type (normally 0 -> 0x80)
 // RL    : record length = RL[0] * 2**32 + RL[1] bytes (ALWAYS a multiple of 4 bytes)
-// META  : array of 32 bit items (data record metadata) (META[0] has special contents and meaning)
-// DATA  : sequence of 8/16/32/64 bit items
+// RMETA : array of 32 bit items (data record metadata) (the first RSF_META_RESERVED elements in RMETA have a special meaning)
+//         meta[0] contains 8 bit record type (RT) and 24 bit record class
+//         meta[1] special meaning ? == data map size ?
+//         the record metadata may be longer than the directory metadata for a given record
+//         record metadata == directory metadata followed by extra metadata information
+//         the extra information is only available after the record has been (possibly partially) read
+// DATA  : sequence of 8/16/32/64 bit items (length of items will be found in DUL)
+// DMAP  : data map (optional, length of DMAP in meta[1] ? )
+//         sequence of 32/64 bit elements in sections (grid coordinates / missing data / chunk map)
 //
 // some part of the PAYLOAD may be "virtual" (uses address space but without anything written)
 // (sparse records like a sparse segment with "split" end of segment record)
@@ -339,8 +350,8 @@ typedef struct{           // directory entry (both file and memory)
   uint32_t wa[2] ;        // upper[0], lower[1] 32 bits of offset in segment (or file)
   uint32_t rl[2] ;        // upper[0], lower[1] 32 bits of record length (bytes)
   uint32_t ml ;           // upper 16 bits directory metadata length, lower 16 record metadata length
-  uint32_t dul:8, reserved:24 ;  // data element length
-  uint32_t meta[] ;       // open array for metadata
+  uint32_t dul:8, reserved:24 ;  // data element length (use part of "reserved" for data map length ?)
+  uint32_t meta[] ;       // open array for metadata    (put data map length in meta[1] ?)
 } vdir_entry ;
 
 typedef struct{              // directory record to be written to file
