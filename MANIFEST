@@ -1,0 +1,10 @@
+NAME       : rsfiles
+VERSION    : 0.0
+STATE      : -pre-alpha
+DESCRIPTION: Random segmented data files
+MAINTAINER : TBD
+URL        : TBD
+
+# Dependencies 
+#    =,<,<=,>,>= : Version rules
+#    ~           : Optional

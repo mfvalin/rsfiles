@@ -14,7 +14,7 @@
  * Author:
  *     M. Valin,   Recherche en Prevision Numerique, 2021
  */
-#include <rsf_int.h>
+#include <rsf/rsf_int.h>
 
 static int32_t verbose = RSF_DIAG_WARN ;
 static char *diag_text[RSF_DIAG_DEBUG2+1] ;

@@ -3,7 +3,7 @@ module rsf_mod
   use ISO_FORTRAN_ENV, only : ERROR_UNIT
   implicit none
 
-#include <rsf.hf>
+#include <rsf/rsf.hf>
   integer, parameter :: RSF_rw      = RSF_RW
   integer, parameter :: RSF_ro      = RSF_RO
   integer, parameter :: RSF_ap      = RSF_AP
