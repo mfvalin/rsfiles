@@ -376,43 +376,44 @@ typedef struct RSF_File RSF_File ;
 #define OP_READ  1
 #define OP_WRITE 2
 
-struct RSF_File{                 // internal (in memory) structure for access to Random Segmented Files
-  uint32_t version ;             // version identifier
-  int32_t  fd ;                  // OS file descriptor (-1 if invalid)
-  RSF_File *next ;               // pointer to next file if "linked" (NULL if not linked)
-  char *name ;                   // file name (canonicalized absolute path name)
-  RSF_Match_fn *matchfn ;        // pointer to metadata matching function
-  directory_block *dirblocks ;   // first "block" of directory data
-  vdir_entry **vdir ;            // pointer to table of vdir_entry pointers (reallocated larger if it gets too small)
-  sparse_entry *sparse_segs ;    // pointer to table of sparse segments
-  uint64_t vdir_size ;           // worst case of total size of vdir entries (future size of directory record in file)
-  uint64_t seg_base ;            // base address in file of the current active segment (0 if only one segment)
-  uint64_t file_wa0 ;            // file address origin (normally 0) (used for file within file access)
-  start_of_segment sos0 ;        // start of segment of first segment (as it was read from file)
-  start_of_segment sos1 ;        // start of segment of active (new) (compact or sparse) segment
-  end_of_segment eos1 ;          // end of segment of active (compact or sparse) segment
-  uint64_t seg_max ;             // maximum address allowable in segment (0 means no limit) (ssegl if sparse file)
-  uint64_t seg_max_hint ;        // desired maximum address allowable in segment
-  off_t    size ;                // file size
-  off_t    next_write ;          // file offset from beginning of file for next write operation ( -1 if not defined)
-  off_t    cur_pos ;             // current file position from beginning of file ( -1 if not defined)
-  uint32_t rec_class ;           // record class being writen (default : data class 1) (rightmost 24 bits only)
-  uint32_t class_mask ;          // record class mask (for scan/read/...) (by default all ones)
-  uint32_t dir_read ;            // number of entries read from file directory 
-  uint32_t vdir_slots ;          // current size of vdir[] table of pointers to directory entries
-  uint32_t vdir_used ;           // number of used pointers in vdir[] table
-  uint32_t sparse_used ;         // number of used entries in sparse_segments table
-  uint32_t sparse_size ;         // size of sparse_segments table
-  int32_t  slot ;                // file slot number of file (-1 if invalid)
-  uint32_t nwritten ;            // number of records written (useful when closing after write)
-  int32_t  lock ;                // used to lock the file for thread safety
-  int32_t iun ;                  // eventual Fortran file number
-  uint16_t rec_meta ;            // record metadata size (uint32_t units)
-  uint16_t dir_meta ;            // directory entry metadata size (uint32_t units)
-  uint16_t mode ;                // file mode (RO/RW/AP/...)
-  uint8_t isnew ;                // new segment indicator
-  uint8_t last_op ;              // last operation (1 = read) (2 = write) (0 = unknown/invalid)
-  uint8_t exclusive ;            // RW in exclusive mode if 1
+//!> Internal (in memory) structure for access to Random Segmented Files
+struct RSF_File {
+  uint32_t version ;             //!< RSF library version identifier
+  int32_t  fd ;                  //!< OS file descriptor (-1 if invalid)
+  RSF_File *next ;               //!< pointer to next file if "linked" (NULL if not linked)
+  char *name ;                   //!< file name (canonicalized absolute path name)
+  RSF_Match_fn *matchfn ;        //!< pointer to metadata matching function
+  directory_block *dirblocks ;   //!< first "block" of directory data (linked list)
+  vdir_entry **vdir ;            //!< pointer to table of vdir_entry pointers (reallocated larger if it gets too small)
+  sparse_entry *sparse_segs ;    //!< pointer to table of sparse segments
+  uint64_t vdir_size ;           //!< worst case of total size of vdir entries (future size of directory record in file)
+  uint64_t seg_base ;            //!< base address in file of the current active segment (0 if only one segment)
+  uint64_t file_wa0 ;            //!< file address origin (normally 0) (used for file within file access)
+  start_of_segment sos0 ;        //!< start of segment of first segment (as it was read from file)
+  start_of_segment sos1 ;        //!< start of segment of active (new) (compact or sparse) segment
+  end_of_segment eos1 ;          //!< end of segment of active (compact or sparse) segment
+  uint64_t seg_max ;             //!< maximum address allowable in segment (0 means no limit) (ssegl if sparse file)
+  uint64_t seg_max_hint ;        //!< desired maximum address allowable in segment
+  off_t    size ;                //!< file size
+  off_t    next_write ;          //!< file offset from beginning of file for next write operation ( -1 if not defined)
+  off_t    cur_pos ;             //!< current file position from beginning of file ( -1 if not defined)
+  uint32_t rec_class ;           //!< record class being writen (default : data class 1) (rightmost 24 bits only)
+  uint32_t class_mask ;          //!< record class mask (for scan/read/...) (by default all ones)
+  uint32_t dir_read ;            //!< Total number of records found in all the directories of a file upon opening
+  uint32_t vdir_slots ;          //!< current size of vdir[] table of pointers to directory entries
+  uint32_t vdir_used ;           //!< number of used pointers in vdir[] table
+  uint32_t sparse_used ;         //!< number of used entries in sparse_segments table
+  uint32_t sparse_size ;         //!< size of sparse_segments table
+  int32_t  slot ;                //!< file slot number of file (-1 if invalid)
+  uint32_t nwritten ;            //!< number of records written (useful when closing after write)
+  int32_t  lock ;                //!< used to lock the file for thread safety
+  int32_t iun ;                  //!< eventual Fortran file number
+  uint16_t rec_meta ;            //!< record metadata size (uint32_t units)
+  uint16_t dir_meta ;            //!< directory entry metadata size (uint32_t units)
+  uint16_t mode ;                //!< file mode (RO/RW/AP/...)
+  uint8_t isnew ;                //!< new segment indicator
+  uint8_t last_op ;              //!< last operation (1 = read) (2 = write) (0 = unknown/invalid)
+  uint8_t exclusive ;            //!< RW in exclusive mode if 1
 } ;
 
 // NOTE : explicit_bzero not available everywhere

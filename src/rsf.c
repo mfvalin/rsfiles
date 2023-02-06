@@ -16,6 +16,8 @@
  */
 #include <rsf/rsf_int.h>
 
+#include <limits.h>
+
 static int32_t verbose = RSF_DIAG_WARN ;
 static char *diag_text[RSF_DIAG_DEBUG2+1] ;
 static int diag_init = 1 ;
@@ -1754,6 +1756,12 @@ ERROR:
   return NULL ;
 }
 
+uint32_t RSF_Get_num_records(RSF_handle h) {
+  RSF_File *fp = (RSF_File *) h.p ;
+  if (! RSF_Valid_file(fp) ) return UINT_MAX;
+  return fp->dir_read ;
+}
+
 int32_t RSF_Valid_handle(RSF_handle h){
   RSF_File *fp = (RSF_File *) h.p ;
   if( RSF_Valid_file(fp) ) return 1 ;
@@ -1809,12 +1817,12 @@ static int RSF_New_empty_segment(RSF_File *fp, int32_t meta_dim, const char *app
   int status = -1 ;
 
   RSF_File_lock(fp, 1) ;    // lock file address range 
-usleep(1000) ;
+  usleep(1000) ;
   nc = read(fp->fd, &sos0, sizeof(start_of_segment)) ;           // try to read first start of segment into sos0
 
   if(nc == 0 && sparse_size > 0){                                // first segment must NEVER be sparse
-fprintf(stderr,"RSF_New_empty_segment DEBUG: sparse segment size = %ld",sparse_size) ;
-fprintf(stderr, ", initial compact segment created\n");
+    fprintf(stderr,"RSF_New_empty_segment DEBUG: sparse segment size = %ld",sparse_size) ;
+    fprintf(stderr, ", initial compact segment created\n");
 // fprintf(stderr, "RSF_New_empty_segment DEBUG : creating empty dummy compact segment\n") ;
     // first segment only has SOS+EOS
     // build SOS for empty dummy compact segment
@@ -1849,11 +1857,11 @@ fprintf(stderr, ", initial compact segment created\n");
     for(i=0 ; i<4 ; i++) sos0.sig1[4+i] = appl[i] ;              // copy application signature
     start = 0 ;                                                  // offset of end of file
     RSF_64_to_32(sos0.sseg, sparse_size) ;                       // sseg MUST be non zero in a new sparse segment
-fprintf(stderr, "RSF_New_empty_segment DEBUG : compact file created\n");
+    fprintf(stderr, "RSF_New_empty_segment DEBUG : compact file created\n");
   }else{                                                         // existing file 
 
     RSF_Read_directory(fp) ;
-fprintf(stderr, "RSF_New_empty_segment DEBUG : reading directory of existing file\n") ;
+    fprintf(stderr, "RSF_New_empty_segment DEBUG : reading directory of existing file\n") ;
 
     fp->isnew = 0 ;                                              // NOT a new file
     if(nc !=  sizeof(start_of_segment)){
@@ -2054,7 +2062,7 @@ RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *app
     *meta_dim = DRML_32(fp->dir_meta, fp->rec_meta) ;
 //     fp->slot = RSF_Set_file_slot(fp) ;
 // fprintf(stderr,"RSF_Open_file DEBUG : slot assigned = %d\n", fp->slot) ;
-fprintf(stderr,"RSF_Open_file DEBUG : RW mode , not reading directory in open\n");
+    fprintf(stderr,"RSF_Open_file DEBUG : RW mode , not reading directory in open\n");
 //     if( RSF_Read_directory(fp) < 0 ){         // read directory from all segments
 //       RSF_Purge_file_slot(fp) ;               // remove from file table in case of error
 //       errmsg = " Read_directory failed" ;
@@ -2080,7 +2088,7 @@ fprintf(stderr,"RSF_Open_file DEBUG : RW mode , not reading directory in open\n"
     if( RSF_Rl_sor(sos.head, RT_SOS) == 0 ) goto ERROR ;      // invalid SOS (wrong record type)
     if( RSF_Rl_eor(sos.tail, RT_SOS) == 0 ) goto ERROR ;      // invalid SOS (wrong record type)
     fp->slot = RSF_Set_file_slot(fp) ;        // insert into file table
-fprintf(stderr,"RSF_Open_file DEBUG : RO mode , reading directory\n");
+    fprintf(stderr,"RSF_Open_file DEBUG : RO mode , reading directory\n");
     if( RSF_Read_directory(fp) < 0 ){         // read directory from all segments
       RSF_Purge_file_slot(fp) ;               // remove from file table in case of error
       goto ERROR ;
