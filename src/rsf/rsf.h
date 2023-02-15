@@ -144,6 +144,7 @@ DT_08 ... DT_64  : length of data elements in record (for endianness management)
 #else
 // C includes and definitions
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
@@ -159,20 +160,20 @@ typedef struct{   // this struct only contains a pointer to the actual full cont
   void *p ;
 } RSF_handle ;
 
+//! Description of a RSF record + its content
 typedef struct{
-  void     *sor ;      // start of record address ( RSF_record.d )
-  uint32_t *meta ;     // pointer to metadata array ( sor - sizeof(sor) )
-  void     *data ;     // pointer to start of data payload array (data map or data)
-//   void     *chunks ;    // pointer to start of data chunks
-  void     *eor ;      // end of record address ( (void *) RSF_record.d + max_data )
-  uint64_t data_size ; // actual data size in bytes (may remain 0 in unmanaged records)
-  uint64_t max_data ;  // maximum data payload size in bytes
-  int64_t rsz ;        // allocated size of RSF_record
-  uint16_t dir_meta ;  // directory metadata size in uint32_t units
-  uint16_t rec_meta ;  // record metadata size in uint32_t units
-  uint16_t elem_size ; // length of data elements in d[] (1/2/4/8 bytes) (endianness management)
-  uint16_t reserved ;  // alignment (maybe use for data map length ?)
-  uint8_t  d[] ;       // dynamic data array (bytes)
+  void     *sor ;      //!< start of record address ( pointer to RSF_record.d )
+  uint32_t *meta ;     //!< pointer to metadata array ( sor + sizeof(sor) )
+  void     *data ;     //!< pointer to start of data payload array (data map or data)
+  void     *eor ;      //!< end of record address ( (void *) RSF_record.d + max_data )
+  uint64_t data_size ; //!< actual data size in bytes (may remain 0 in unmanaged records)
+  uint64_t max_data ;  //!< maximum data payload size in bytes
+  int64_t rsz ;        //!< allocated size of RSF_record
+  uint16_t dir_meta ;  //!< directory metadata size in uint32_t units
+  uint16_t rec_meta ;  //!< record metadata size in uint32_t units
+  uint16_t elem_size ; //!< length of data elements in d[] (1/2/4/8 bytes) (endianness management)
+  uint16_t reserved ;  //!< alignment (maybe use for data map length ?)
+  uint8_t  d[] ;       //!< dynamic data array (bytes)
 } RSF_record ;
 
 typedef struct{        // this struct MUST BE TREATED AS READ-ONLY
@@ -264,6 +265,17 @@ interface
   end function RSF_Lookup
 #else
   int64_t RSF_Lookup(RSF_handle h, int64_t key0, uint32_t *criteria, uint32_t *mask, uint32_t lcrit) ;
+#endif
+
+#if defined(IN_FORTRAN_CODE)
+  function RSF_Get_mode(handle) result(mode) bind(C, name = 'RSF_Get_mode')
+    import :: RSF_handle, C_INT32_T
+    implicit none
+    type(RSF_handle), intent(IN), value :: handle
+    integer(C_INT32_T) :: mode
+  end function RSF_Get_mode
+#else
+  int32_t RSF_Get_mode(RSF_handle h) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
@@ -411,13 +423,14 @@ interface
 #endif
 
 #if defined(IN_FORTRAN_CODE)
-! allocate a new record handle (Fortran)
-  function RSF_New_record_handle(handle, max_meta, max_data, t, szt) result(rh) bind(C,name='RSF_New_record')
+!> allocate a new record handle (Fortran)
+!> \copydoc RSF_New_record
+  function RSF_New_record_handle(handle, rec_meta, dir_meta, max_data, t, szt) result(rh) bind(C,name='RSF_New_record')
     import :: RSF_handle, C_INT32_t, C_INT64_T, RSF_record_handle, C_PTR
     implicit none
     type(RSF_handle), intent(IN), value :: handle
     type(C_PTR), value :: t
-    integer(C_INT32_t), intent(IN), value :: max_meta
+    integer(C_INT32_t), intent(IN), value :: rec_meta, dir_meta
     integer(C_INT64_T), intent(IN), value :: max_data, szt
     type(RSF_record_handle) :: rh
   end function RSF_New_record_handle

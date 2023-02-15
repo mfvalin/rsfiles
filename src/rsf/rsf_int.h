@@ -175,17 +175,21 @@ static inline void RSF_64_to_32(uint32_t u32[2], uint64_t u64){
   u32[1] = (u64 & 0xFFFFFFFFu) ;
 }
 
-typedef struct {                   // record header
-  uint32_t rt:8, rlm:16, zr:8 ;    // ZR_SOR, metadata length (32 bit units), record type
-  uint32_t rl[2] ;                 // upper[0], lower[1] 32 bits of record length (bytes)
+//! Record header. Describes the type and size of a record and is located at the start of it.
+typedef struct {
+  uint32_t rt:8, rlm:16, zr:8 ;    //! Record start marker (ZR_SOR), metadata length (32 bit units), record type
+  uint32_t rl[2] ;                 //! upper[0], lower[1] 32 bits of record length (bytes)
   uint32_t rlmd:16, ubc:8, dul:8 ;
 } start_of_record ;
 
 #define SOR {RT_DATA, 0, ZR_SOR, {0, 0}, 0, 0, 0}
 
-// record length from start_of_record (0 if invalid)
-// rt : expected record type (0 means anything is O.K.)
-static inline uint64_t RSF_Rl_sor(start_of_record sor, int rt){
+//! Retrieve record length from start_of_record and verify whether the type matches what's expected.
+//! \return Record length, 0 if invalid
+static inline uint64_t RSF_Rl_sor(
+    start_of_record sor,    //!< SOR we want to query
+    int rt                  //!< Expected type of the record (0 means any type is O.K.)
+) {
   uint64_t rl ;
   if(sor.zr != ZR_SOR ) {
     fprintf(stderr,"invalid sor, bad ZR marker, expected %4.4x, got %4.4x\n", ZR_SOR, sor.zr);
@@ -199,16 +203,20 @@ static inline uint64_t RSF_Rl_sor(start_of_record sor, int rt){
   return rl ;
 }
 
-typedef struct {                   // record trailer
-  uint32_t rl[2] ;                 // upper[0], lower[1] 32 bits of record length
-  uint32_t rt:8, rlm:16, zr:8 ;    // ZR_EOR, metadata length (32 bit units), record type
+//! Record trailer. Describes the type and size of a record and is located at the end of it.
+typedef struct {
+  uint32_t rl[2] ;                 //! upper[0], lower[1] 32 bits of record length (bytes)
+  uint32_t rt:8, rlm:16, zr:8 ;    //! Record end marker (ZR_EOR), metadata length (32 bit units), record type
 } end_of_record ;
 
 #define EOR {{0, 0}, RT_DATA, 0,ZR_EOR }
 
-// record length from end_of_record (0 if invalid)
-// rt : expected record type (0 means anything is O.K.)
-static inline uint64_t RSF_Rl_eor(end_of_record eor, int rt){
+//! Retrieve record length from end_of_record and verify whether the type matches what's expected
+//! \return Record length, 0 if invalid
+static inline uint64_t RSF_Rl_eor(
+    end_of_record eor,  //!< EOR we want to query
+    int rt              //!< Expected type of the record (0 means any type is O.K.)
+) {
   uint64_t rl ;
   if(eor.zr != ZR_EOR) return 0 ;                // invalid eor, bad ZR marker
   if(eor.rt != rt && rt != 0 ) return 0 ;        // invalid eor, not expected RT

@@ -185,6 +185,7 @@ module rsf_mod
     call C_F_POINTER(r%data, data, [r%data_size / 4])  ! data_size is in bytes
   end function RSF_Record_payload2
 
+  !> \copydoc RSF_New_record
   function RSF_New_record1(fh, max_data) result(r)      ! return a pointer to RSF_record type
     implicit none
     type(RSF_handle), intent(IN), value :: fh
@@ -192,10 +193,11 @@ module rsf_mod
     type(RSF_record) ,pointer :: r
     type(RSF_record_handle) :: rh
 
-    rh = RSF_New_record_handle(fh, 0, max_data, C_NULL_PTR, max_data)
+    rh = RSF_New_record_handle(fh, 0, 0, max_data, C_NULL_PTR, max_data)
     call C_F_POINTER(rh%record, r)                          ! handle -> record pointer
   end function RSF_New_record1
 
+  !> \copydoc RSF_New_record
   function RSF_New_record2(fh, max_data, t, szt) result(r)  ! return a pointer to RSF_record type
     implicit none
     type(RSF_handle), intent(IN), value :: fh
@@ -205,7 +207,7 @@ module rsf_mod
     type(RSF_record) ,pointer :: r
     type(RSF_record_handle) :: rh
 
-    rh = RSF_New_record_handle(fh, 0, max_data, t, szt)
+    rh = RSF_New_record_handle(fh, 0, 0, max_data, t, szt)
     call C_F_POINTER(rh%record, r)                          ! handle -> record pointer
   end function RSF_New_record2
 

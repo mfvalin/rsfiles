@@ -16,8 +16,6 @@
  */
 #include <rsf/rsf_int.h>
 
-#include <limits.h>
-
 static int32_t verbose = RSF_DIAG_WARN ;
 static char *diag_text[RSF_DIAG_DEBUG2+1] ;
 static int diag_init = 1 ;
@@ -599,7 +597,9 @@ ERROR:
   return -1 ;  
 }
 
-// return directory record size associated with file associated with fp
+//! Compute the size of the (combined) in-memory directory record. This is the sum of what is
+//! on disk and what was written since (but not yet committed to disk).
+//! \return Directory record size associated with file associated with fp
 static size_t RSF_Vdir_record_size(RSF_File *fp){
   int32_t i, ml ;
   size_t dir_rec_size ;
@@ -612,6 +612,7 @@ static size_t RSF_Vdir_record_size(RSF_File *fp){
     fprintf(stderr, "RSF_Vdir_record_size DEBUG : dir rec size = %ld %ld\n", dir_rec_size, fp->vdir_size);
   return dir_rec_size ;
 }
+
 // write directory to file from memory directory (variable length metadata)
 // it is NOT assumed that the file is correctly positioned
 static int64_t RSF_Write_vdir(RSF_File *fp){
@@ -771,19 +772,38 @@ int32_t RSF_Valid_record(RSF_record *r){
   return 0 ;
 }
 
-// allocate a data record structure that can accomodate up to max_data data bytes of payload
-// and up to max_meta 32 bit metadata items (max_meta == 0 means use fp->meta_dim)
-// (in that case, the caller is responsible for releasing (free) the allocated space when no longer needed)
-// or
-// the caller has the option to supply a memory array (t != NULL) of size szt bytes
-// if szt == 0, it must be a previously created "record" large enough to accomodate max_data / max_meta
-//
-// this record structure will be used by RSF_Get, RSF_Put
-//
-// this record is reusable as long as the allocated size can accomodate max_data data bytes of payload
-// this is why the allocated size is kept in the struct
-// if the szt field in the struct is negative, the memory was not allocated by RSF_New_record
-RSF_record *RSF_New_record(RSF_handle h, int32_t rec_meta, int32_t dir_meta, size_t max_data, void *t, int64_t szt){
+//! Create a data record structure that can accomodate up to [max_data] bytes of payload
+//! and up to [rec_meta] 32-bit metadata items (rec_meta == 0 means use fp->meta_dim).
+//! If t is NULL, allocate the space for this record. In that case, the caller is responsible
+//! for releasing (free) the allocated space when no longer needed.
+//! If t is non-NULL, the record will be created from the memory pointed to by it.
+//! szt indicates the size of the array t and must be sufficiently large to accomodate the record.
+//! If t is non-NULL and szt == 0, it must be a previously created "record" large enough to
+//! accomodate max_data and rec_meta
+//!
+//! This record structure will be used by RSF_Get, RSF_Put.
+//!
+//! This record is reusable as long as the allocated size can accomodate [max_data] bytes of payload
+//! (this is why the allocated size is kept in the struct).
+//!
+//! If the szt field in the struct is negative, the memory was not allocated by RSF_New_record
+//!
+//! \return A pointer to the allocated data record
+RSF_record *RSF_New_record(
+    //!> Handle to the open file for which we want to create a record.
+    RSF_handle h,
+    //!> Max size (in 32-bit units) of record metadata. Use rec_meta from file if too small.
+    int32_t rec_meta,
+    //!> Max size (in 32-bit units) of record metadata. Will be bounded by [rec_meta].
+    //!> Use dir_meta from file if too small.
+    int32_t dir_meta,
+    //!> Max size (in bytes) of data that the record can hold.
+    size_t max_data,
+    //!> [optional] Array that will hold the record.
+    void *t,
+    //!> [optional] Size of the [t] array. If 0, [t] must be a previously created record.
+    int64_t szt
+) {
   RSF_File *fp = (RSF_File *) h.p ;
   size_t record_size ;
   RSF_record *r ;
@@ -1760,6 +1780,11 @@ uint32_t RSF_Get_num_records(RSF_handle h) {
   RSF_File *fp = (RSF_File *) h.p ;
   if (! RSF_Valid_file(fp) ) return UINT_MAX;
   return fp->dir_read ;
+}
+
+int32_t RSF_Get_mode(RSF_handle h) {
+  RSF_File *fp = (RSF_File *) h.p ;
+  return (int32_t)fp->mode;
 }
 
 int32_t RSF_Valid_handle(RSF_handle h){
