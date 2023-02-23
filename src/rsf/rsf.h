@@ -141,7 +141,7 @@ DT_08 ... DT_64  : length of data elements in record (for endianness management)
     !  call C_F_POINTER(h%record, r)
     !  r%meta, r%data, r%meta_size, r%data_size, etc ... now accessible in module procedures
   end type
-#else
+#else // IN_FORTRAN_CODE
 // C includes and definitions
 
 #include <limits.h>
@@ -176,19 +176,20 @@ typedef struct{
   uint8_t  d[] ;       //!< dynamic data array (bytes)
 } RSF_record ;
 
-typedef struct{        // this struct MUST BE TREATED AS READ-ONLY
-  uint64_t wa ;        // address of record in file
-  uint64_t rl ;        // record length
-  uint64_t wa_data ;   // address of data in file
-  uint64_t data_size ; // actual data size in bytes (may remain 0 in unmanaged records)
-  uint64_t wa_meta ;   // address of metadata in file
-  uint32_t *meta ;     // pointer to directory metadata (DO NOT STORE INTO)
-  char     *fname ;    // pointer to filename if file container (DO NOT STORE INTO)
-  uint64_t file_size ; // true file size (from metadata) if file container
-  uint16_t dir_meta ;  // directory metadata size in uint32_t units
-  uint16_t dir_meta0 ; // size excluding file name and file length in file containers
-  uint16_t rec_meta ;  // record metadata size in uint32_t units
-  uint16_t elem_size ; // length of data elements (1/2/4/8 bytes) (endianness management)
+//! Record information. This struct MUST BE TREATED AS READ-ONLY.
+typedef struct{
+  uint64_t wa ;        //! address of record in file
+  uint64_t rl ;        //! record length
+  uint64_t wa_data ;   //! address of data in file
+  uint64_t data_size ; //! actual data size in bytes (may remain 0 in unmanaged records)
+  uint64_t wa_meta ;   //! address of metadata in file
+  const uint32_t *meta ;  //! pointer to directory metadata (DO NOT STORE INTO)
+  const char     *fname ; //! pointer to filename if file container (DO NOT STORE INTO)
+  uint64_t file_size ; //! true file size (from metadata) if file container
+  uint16_t dir_meta ;  //! directory metadata size in uint32_t units
+  uint16_t dir_meta0 ; //! size excluding file name and file length in file containers
+  uint16_t rec_meta ;  //! record metadata size in uint32_t units
+  uint16_t elem_size ; //! length of data elements (1/2/4/8 bytes) (endianness management)
 // NOTE: add something for data map length ?
 } RSF_record_info ;
 
@@ -199,7 +200,7 @@ typedef struct{        // this struct MUST BE TREATED AS READ-ONLY
 // metadata matching function (normally supplied by application)
 typedef int32_t RSF_Match_fn(uint32_t *criteria, uint32_t *meta, uint32_t *mask, int ncrit, int nmeta, int reject_a_priori) ;
 
-#endif
+#endif // IN_FORTRAN_CODE
 
 #if defined(IN_FORTRAN_CODE)
 interface
@@ -510,7 +511,8 @@ interface
   RSF_record *RSF_New_record(RSF_handle h, int32_t rec_meta, int32_t dir_meta, size_t max_data, void *t, int64_t szt) ;
   int32_t RSF_Record_add_meta(RSF_record *r, uint32_t *meta, int32_t rec_meta, int32_t dir_meta, uint32_t data_elem) ;  // add metadata
   int64_t RSF_Record_add_bytes(RSF_record *r, void *data, size_t data_size) ;  // add data bytes
-  int64_t RSF_Record_add_data(RSF_record *r, void *data, size_t data_elements, int data_element_size) ; // add data elements
+  int64_t RSF_Record_add_elements(RSF_record *r, void *data, size_t num_data_elements, int data_element_size) ; //!< \copydoc RSF_Record_add_elements
+  int64_t RSF_Record_set_num_elements(RSF_record *r, size_t num_elements, int element_size) ; //!< \copydoc RSF_Record_set_num_elements
   void RSF_Free_record(RSF_record * r) ;                       // free the space allocated to that record
   int32_t RSF_Valid_record(RSF_record *r) ;                    // does this look like a valid record ?
   int64_t RSF_Record_free_space(RSF_record *r) ;               // space available for more data in record allocated by RSF_New_record
@@ -527,6 +529,9 @@ interface
 int64_t RSF_Used_space(RSF_handle h) ;
 int64_t RSF_Available_space(RSF_handle h) ;
 uint64_t RSF_Put_null_record(RSF_handle h, size_t record_size) ;
+int32_t RSF_Key32(int64_t key64) ;
+uint32_t RSF_Key64_to_file_slot(int64_t key64) ;
+int32_t RSF_File_slot(RSF_handle h) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)

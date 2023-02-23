@@ -402,7 +402,7 @@ struct RSF_File {
   end_of_segment eos1 ;          //!< end of segment of active (compact or sparse) segment
   uint64_t seg_max ;             //!< maximum address allowable in segment (0 means no limit) (ssegl if sparse file)
   uint64_t seg_max_hint ;        //!< desired maximum address allowable in segment
-  off_t    size ;                //!< file size
+  // off_t    size ;                //!< file size
   off_t    next_write ;          //!< file offset from beginning of file for next write operation ( -1 if not defined)
   off_t    cur_pos ;             //!< current file position from beginning of file ( -1 if not defined)
   uint32_t rec_class ;           //!< record class being writen (default : data class 1) (rightmost 24 bits only)
@@ -412,7 +412,7 @@ struct RSF_File {
   uint32_t vdir_used ;           //!< number of used pointers in vdir[] table
   uint32_t sparse_used ;         //!< number of used entries in sparse_segments table
   uint32_t sparse_size ;         //!< size of sparse_segments table
-  int32_t  slot ;                //!< file slot number of file (-1 if invalid)
+  int32_t  slot ;                //!< Slot where this file is located in the list of open files (-1 if invalid)
   uint32_t nwritten ;            //!< number of records written (useful when closing after write)
   int32_t  lock ;                //!< used to lock the file for thread safety
   int32_t iun ;                  //!< eventual Fortran file number
