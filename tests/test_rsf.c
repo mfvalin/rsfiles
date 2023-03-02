@@ -1,7 +1,7 @@
 
 #if defined(RSF_OPEN)
 
-#include <rsf_int.h>
+#include "rsf/rsf_int.h"
 #define META_SIZE 6
 int64_t RSF_Scan_vdir(RSF_File *fp, int64_t key0, uint32_t *criteria, uint32_t *mask, uint32_t lcrit, uint64_t *wa, uint64_t *rl);
 int32_t RSF_Get_vdir_entry(RSF_File *fp, int64_t key, uint64_t *wa, uint64_t *rl, uint32_t **meta);
@@ -48,11 +48,11 @@ int the_test(int argc, char **argv){
   return(0) ;
 }
 
-#endif
+#endif // RSF_OPEN
 
 #if defined(RSF_DUMP)
 
-#include <rsf.h>
+#include <rsf/rsf.h>
 void usage(char **argv){
   fprintf(stderr,"usage : %s rsf_file [verbose]\n",argv[0]);
 }
@@ -88,7 +88,7 @@ int the_test(int argc, char **argv){
   return(0) ;
 }
 
-#endif
+#endif // RSF_DUMP
 
 #if defined(TEST7S)
 // test7s.Abs filename ntests
@@ -441,7 +441,7 @@ ERROR :
   if(my_rank == 0) fprintf(stderr,"usage : %s rsf_file_name number_of_tests creator_pe\n", argv[0]) ;
   goto END ;
 }
-#endif
+#endif // TEST7S
 
 #if defined(TEST7)
 
@@ -562,7 +562,7 @@ ERROR :
   goto END ;
 }
 
-#endif
+#endif // TEST7
 
 #if defined(TEST6)
 

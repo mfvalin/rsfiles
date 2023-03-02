@@ -168,7 +168,7 @@ typedef struct{
   void     *eor ;      //!< end of record address ( (void *) RSF_record.d + max_data )
   uint64_t data_size ; //!< actual data size in bytes (may remain 0 in unmanaged records)
   uint64_t max_data ;  //!< maximum data payload size in bytes
-  int64_t rsz ;        //!< allocated size of RSF_record
+  int64_t rsz ;        //!< allocated size of RSF_record in bytes (including SOR, metadata, data and EOR)
   uint16_t dir_meta ;  //!< directory metadata size in uint32_t units
   uint16_t rec_meta ;  //!< record metadata size in uint32_t units
   uint16_t elem_size ; //!< length of data elements in d[] (1/2/4/8 bytes) (endianness management)
@@ -179,7 +179,7 @@ typedef struct{
 //! Record information. This struct MUST BE TREATED AS READ-ONLY.
 typedef struct{
   uint64_t wa ;        //! address of record in file
-  uint64_t rl ;        //! record length
+  uint64_t rl ;        //! record length in bytes (including SOR, metadata, data and EOR)
   uint64_t wa_data ;   //! address of data in file
   uint64_t data_size ; //! actual data size in bytes (may remain 0 in unmanaged records)
   uint64_t wa_meta ;   //! address of metadata in file
@@ -530,8 +530,11 @@ int64_t RSF_Used_space(RSF_handle h) ;
 int64_t RSF_Available_space(RSF_handle h) ;
 uint64_t RSF_Put_null_record(RSF_handle h, size_t record_size) ;
 int32_t RSF_Key32(int64_t key64) ;
+int64_t RSF_Key64(int32_t key32) ;
 uint32_t RSF_Key64_to_file_slot(int64_t key64) ;
+int32_t RSF_Key32_type(int32_t key32) ;
 int32_t RSF_File_slot(RSF_handle h) ;
+RSF_handle RSF_Key32_to_handle(int32_t key32) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)

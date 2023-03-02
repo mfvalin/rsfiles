@@ -177,9 +177,13 @@ static inline void RSF_64_to_32(uint32_t u32[2], uint64_t u64){
 
 //! Record header. Describes the type and size of a record and is located at the start of it.
 typedef struct {
-  uint32_t rt:8, rlm:16, zr:8 ;    //! Record start marker (ZR_SOR), metadata length (32 bit units), record type
-  uint32_t rl[2] ;                 //! upper[0], lower[1] 32 bits of record length (bytes)
-  uint32_t rlmd:16, ubc:8, dul:8 ;
+  uint32_t rt:8  ,  //!< Record type
+           rlm:16,  //!< Record metadata length (in 32-bit units)
+           zr:8  ;  //!< Record start marker (ZR_SOR)
+  uint32_t rl[2] ;  //!< upper[0] and lower[1] 32 bits of record length (bytes)
+  uint32_t rlmd:16, //!< Directory metadata length (in 32-bit units) (rlmd <= rlm)
+           ubc:8  , //!< Unused bit count (length is always a multiple of 4 bytes)
+           dul:8  ; //!< Data unit length (0/1/2/4/8) (for endianness management)
 } start_of_record ;
 
 #define SOR {RT_DATA, 0, ZR_SOR, {0, 0}, 0, 0, 0}
