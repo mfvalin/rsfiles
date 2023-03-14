@@ -260,16 +260,17 @@ static inline uint64_t RSF_Rl_eor(
 //   compact segment   the two EOS parts (EOSlo and EOShi) are adjacent and 
 //                     record length = sizeof(end_of_segment_lo) + sizeof(end_of_segment_hi)
 //
-typedef struct{           // start of segment record, matched by a corresponding end of segment record
-  start_of_record head ;  // rt=3
-  unsigned char sig1[8] ; // RSF marker + application marker ('RSF0cccc) where cccc is 4 character application signature
-  uint32_t sign ;         // 0xDEADBEEF hex signature for start_of_segment
-  uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes) (excluding EOS record)
-                          // seg = 0 for a sparse segment
-  uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of segment size (bytes) (including EOS record)
-  uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
-  uint32_t vdirs[2] ;     // upper[0], lower[1] 32 bits of variable directory record size (bytes)
-  end_of_record tail ;    // rt=3
+
+//! "Start of segment" (SOS) record. Matched by a correspoding "end of segment" (EOS) record
+typedef struct {
+  start_of_record head ;  //! Record type rt = RT_SOS (3)
+  unsigned char sig1[8] ; //! RSF marker + application marker ('RSF0cccc') where cccc is 4 character application signature
+  uint32_t sign ;         //! start_of_segment hex signature (0xDEADBEEF)
+  uint32_t seg[2] ;       //! Segment size (bytes), excluding EOS record. (upper[0], lower[1] 32 bits). seg = 0 for a sparse segment
+  uint32_t sseg[2] ;      //! Segment size (bytes), including EOS record. (upper[0], lower[1] 32 bits)
+  uint32_t vdir[2] ;      //! Variable directory record offset in segment (bytes). (upper[0], lower[1] 32 bits)
+  uint32_t vdirs[2] ;     //! Variable directory record size (bytes). (upper[0], lower[1] 32 bits)
+  end_of_record tail ;    //! Record type rt = RT_SOS (3)
 } start_of_segment ;
 
 // record length of start of segment
@@ -349,11 +350,11 @@ struct directory_block{
   uint8_t entries[] ;
 } ;
 
-// directory metadata length : upper 16 bits if non zero, lower 16 bits if upper 16 are zero
+//!> Extract directory metadata length from int32: upper 16 bits if non zero, lower 16 bits if upper 16 are zero
 #define DIR_ML(DRML) ( ((DRML) >> 16) == 0 ? (DRML) : ((DRML) >> 16) )
-// record metadata length : lower 16 bits
+//!> Extract record metadata length from int32: lower 16 bits
 #define REC_ML(DRML) ( (DRML) & 0xFFFF)
-// build composite ml field 
+//!> Build composite ml field: directory metadata in upper 16 bits, record metadata in lower 16 bits
 #define DRML_32(ml_dir, ml_rec)  ( ( (ml_dir) << 16 ) | ( (ml_rec) & 0xFFFF ) )
 // propagate lower 16 bits into upper 16 bits if upper 16 are zero
 // #define DRML_FIX(ML) ( ((ML) >> 16) == 0 ? ((ML) <<16) | (ML) : (ML) )
@@ -516,3 +517,20 @@ static inline uint64_t RSF_Record_size(uint32_t rec_meta, size_t data_size){
   record_size = RSF_Round_size(record_size) ;         // rounded up size
   return record_size ;
 }
+
+static inline char* rt_to_str(const int record_type) {
+  switch (record_type) {
+    case RT_NULL:   return "RT_NULL";
+    case RT_DATA:   return "RT_DATA";
+    case RT_XDAT:   return "RT_XDAT";
+    case RT_SOS:    return "RT_SOS";
+    case RT_EOS:    return "RT_EOS";
+    case RT_VDIR:   return "RT_VDIR";
+    case RT_FILE:   return "RT_FILE";
+    case RT_CUSTOM: return "RT_CUSTOM";
+    case RT_DEL:    return "RT_DEL";
+    default:        return "<unknown>";
+  }
+}
+
+void print_start_of_segment(start_of_segment* sos);
