@@ -163,6 +163,12 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
 #define ARBITRARY_OVERHEAD 4096
 #define NEW_SEGMENT_OVERHEAD (ARBITRARY_OVERHEAD + 2 * sizeof(start_of_segment) + sizeof(end_of_segment))
 
+// Markers
+const int      RSF_EXCLUSIVE_WRITE  = 0xFFFF;     //!< Mark a file as locked for writing
+const uint32_t RSF_SOS_SIGNATURE    = 0xDEADBEEF; //!< Marker to indicate a start of segment
+const uint32_t RSF_EOS_HI_SIGNATURE = 0xCAFEFADE; //!< Marker to indicate the high part of an end of segment 
+const uint32_t RSF_EOS_LO_SIGNATURE = 0xBEBEFADA; //!< Marker to indicate the low part of an end of segment
+
 // convert a pair of unsigned 32 bit elements into an unsigned 64 bit element
 static inline uint64_t RSF_32_to_64(uint32_t u32[2]){
   uint64_t u64;
@@ -265,7 +271,7 @@ static inline uint64_t RSF_Rl_eor(
 typedef struct {
   start_of_record head ;  //! Record type rt = RT_SOS (3)
   unsigned char sig1[8] ; //! RSF marker + application marker ('RSF0cccc') where cccc is 4 character application signature
-  uint32_t sign ;         //! start_of_segment hex signature (0xDEADBEEF)
+  uint32_t sign ;         //! start_of_segment hex signature (#RSF_SOS_SIGNATURE)
   uint32_t seg[2] ;       //! Segment size (bytes), excluding EOS record. (upper[0], lower[1] 32 bits). seg = 0 for a sparse segment
   uint32_t sseg[2] ;      //! Segment size (bytes), including EOS record. (upper[0], lower[1] 32 bits)
   uint32_t vdir[2] ;      //! Variable directory record offset in segment (bytes). (upper[0], lower[1] 32 bits)
@@ -282,18 +288,18 @@ static inline uint64_t RSF_Rl_sos(start_of_segment sos){
 }
 
 #define SOS { {RT_SOS, 0, ZR_SOR, {0, sizeof(start_of_segment)}},  \
-              {'R','S','F','0','<','-','-','>'} , 0xDEADBEEF, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
+              {'R','S','F','0','<','-','-','>'} , RSF_SOS_SIGNATURE, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
               {{0, sizeof(start_of_segment)}, RT_SOS, 0, ZR_EOR} }
 
 typedef struct{           // head part of end_of_segment record (low address in file)
   start_of_record head ;  // rt=4
-  uint32_t sign ;         // 0xBEBEFADA hex signature for end_of_segment_lo
+  uint32_t sign ;         // hex signature for end_of_segment_lo (#RSF_EOS_LO_SIGNATURE)
 } end_of_segment_lo ;
 
-#define EOSLO { {RT_EOS, 0, ZR_SOR, {0, sizeof(end_of_segment_lo)+sizeof(end_of_segment_hi)}}, 0xBEBEFADA }
+#define EOSLO { {RT_EOS, 0, ZR_SOR, {0, sizeof(end_of_segment_lo)+sizeof(end_of_segment_hi)}}, RSF_EOS_LO_SIGNATURE }
 
 typedef struct{           // tail part of end_of_segment record (high address in file)
-  uint32_t sign ;         // 0xCAFEFADE hex signature for end_of_segment_hi
+  uint32_t sign ;         // hex signature for end_of_segment_hi (#RSF_EOS_HI_SIGNATURE)
   uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes)
                           // seg = 0 for a sparse segment
   uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of sparse segment size (bytes) (0 if not sparse file)
@@ -316,7 +322,7 @@ static inline uint64_t RSF_Rl_eos(end_of_segment_lo eosl, end_of_segment_hi eosh
   return rl1 ;
 }
 
-#define EOSHI { 0xCAFEFADE, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
+#define EOSHI { RSF_EOS_HI_SIGNATURE, {0, 0}, {0, 0}, {0, 0}, {0, 0}, \
               {{0, sizeof(end_of_segment_lo)+sizeof(end_of_segment_hi)}, RT_EOS, 0, ZR_EOR} }
 
 typedef struct{           // compact end of segment (non sparse file)
@@ -405,8 +411,8 @@ struct RSF_File {
   start_of_segment sos0 ;        //!< start of segment of first segment (as it was read from file)
   start_of_segment sos1 ;        //!< start of segment of active (new) (compact or sparse) segment
   end_of_segment eos1 ;          //!< end of segment of active (compact or sparse) segment
-  uint64_t seg_max ;             //!< maximum address allowable in segment (0 means no limit) (ssegl if sparse file)
-  uint64_t seg_max_hint ;        //!< desired maximum address allowable in segment
+  uint64_t seg_max ;             //!< Maximum address allowable in segment (ssegl if sparse file). 0 for compact segment (or no limit?)
+  uint64_t seg_max_hint ;        //!< Desired maximum address allowable in segment (sparse only)
   // off_t    size ;                //!< file size
   off_t    next_write ;          //!< file offset from beginning of file for next write operation ( -1 if not defined)
   off_t    cur_pos ;             //!< current file position from beginning of file ( -1 if not defined)
@@ -415,8 +421,8 @@ struct RSF_File {
   uint32_t dir_read ;            //!< Total number of records found in all the directories of a file upon opening
   uint32_t vdir_slots ;          //!< current size of vdir[] table of pointers to directory entries
   uint32_t vdir_used ;           //!< number of used pointers in vdir[] table
-  uint32_t sparse_used ;         //!< number of used entries in sparse_segments table
-  uint32_t sparse_size ;         //!< size of sparse_segments table
+  uint32_t sparse_table_used ;   //!< number of used entries in sparse_segments table
+  uint32_t sparse_table_size ;   //!< size of sparse_segments table
   int32_t  slot ;                //!< Slot where this file is located in the list of open files (-1 if invalid)
   uint32_t nwritten ;            //!< number of records written (useful when closing after write)
   int32_t  lock ;                //!< used to lock the file for thread safety
