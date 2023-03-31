@@ -269,14 +269,15 @@ static inline uint64_t RSF_Rl_eor(
 
 //! "Start of segment" (SOS) record. Matched by a correspoding "end of segment" (EOS) record
 typedef struct {
-  start_of_record head ;  //! Record type rt = RT_SOS (3)
-  unsigned char sig1[8] ; //! RSF marker + application marker ('RSF0cccc') where cccc is 4 character application signature
-  uint32_t sign ;         //! start_of_segment hex signature (#RSF_SOS_SIGNATURE)
-  uint32_t seg[2] ;       //! Segment size (bytes), excluding EOS record. (upper[0], lower[1] 32 bits). seg = 0 for a sparse segment
-  uint32_t sseg[2] ;      //! Segment size (bytes), including EOS record. (upper[0], lower[1] 32 bits)
-  uint32_t vdir[2] ;      //! Variable directory record offset in segment (bytes). (upper[0], lower[1] 32 bits)
-  uint32_t vdirs[2] ;     //! Variable directory record size (bytes). (upper[0], lower[1] 32 bits)
-  end_of_record tail ;    //! Record type rt = RT_SOS (3)
+  start_of_record head ;  //!< Record type rt = RT_SOS (3)
+  unsigned char sig1[8] ; //!< RSF marker + application marker ('RSF0cccc') where cccc is 4 character application signature
+  uint32_t sign ;         //!< start_of_segment hex signature (#RSF_SOS_SIGNATURE)
+  uint32_t seg[2] ;       //!< Segment size (bytes), excluding EOS record. (upper[0], lower[1] 32 bits)
+                          //!< 0 for a sparse segment, 0 when segment is open for writing
+  uint32_t sseg[2] ;      //!< Segment size (bytes), including EOS record. (upper[0], lower[1] 32 bits)
+  uint32_t vdir[2] ;      //!< Variable directory record offset in segment (bytes). (upper[0], lower[1] 32 bits)
+  uint32_t vdirs[2] ;     //!< Variable directory record size (bytes). (upper[0], lower[1] 32 bits)
+  end_of_record tail ;    //!< Record type rt = RT_SOS (3)
 } start_of_segment ;
 
 // record length of start of segment
@@ -300,9 +301,8 @@ typedef struct{           // head part of end_of_segment record (low address in 
 
 typedef struct{           // tail part of end_of_segment record (high address in file)
   uint32_t sign ;         // hex signature for end_of_segment_hi (#RSF_EOS_HI_SIGNATURE)
-  uint32_t seg[2] ;       // upper[0], lower[1] 32 bits of segment size (bytes)
-                          // seg = 0 for a sparse segment
-  uint32_t sseg[2] ;      // upper[0], lower[1] 32 bits of sparse segment size (bytes) (0 if not sparse file)
+  uint32_t seg[2] ;       // Compact segment size (bytes) (upper[0], lower[1] 32 bits). 0 for a sparse segment
+  uint32_t sseg[2] ;      // Sparse segment size (bytes) (upper[0], lower[1] 32 bits). 0 for a compact segment
   uint32_t vdir[2] ;      // upper[0], lower[1] 32 bits of variable directory record offset in segment (bytes)
   uint32_t vdirs[2] ;     // upper[0], lower[1] 32 bits of variable directory record size (bytes)
   end_of_record tail ;    // rt=4
@@ -401,6 +401,7 @@ struct RSF_File {
   int32_t  fd ;                  //!< OS file descriptor (-1 if invalid)
   RSF_File *next ;               //!< pointer to next file if "linked" (NULL if not linked)
   char *name ;                   //!< file name (canonicalized absolute path name)
+  char appl_code[4] ;            //!< Application-specific code
   RSF_Match_fn *matchfn ;        //!< pointer to metadata matching function
   directory_block *dirblocks ;   //!< first "block" of directory data (linked list)
   vdir_entry **vdir ;            //!< pointer to table of vdir_entry pointers (reallocated larger if it gets too small)
@@ -415,7 +416,7 @@ struct RSF_File {
   uint64_t seg_max_hint ;        //!< Desired maximum address allowable in segment (sparse only)
   // off_t    size ;                //!< file size
   off_t    next_write ;          //!< file offset from beginning of file for next write operation ( -1 if not defined)
-  off_t    cur_pos ;             //!< current file position from beginning of file ( -1 if not defined)
+  off_t    current_pos ;         //!< current file position (for writing) from beginning of file ( -1 if not defined)
   uint32_t rec_class ;           //!< record class being writen (default : data class 1) (rightmost 24 bits only)
   uint32_t class_mask ;          //!< record class mask (for scan/read/...) (by default all ones)
   uint32_t dir_read ;            //!< Total number of records found in all the directories of a file upon opening
@@ -456,8 +457,8 @@ static inline void RSF_File_init(RSF_File *fp){  // initialize a new RSF_File st
 //   fp->seg_max    =  0 ;    // redundant if sos is stored
 //   fp->seg_max_hint =  0 ;  // redundant if sos is stored
 //   fp->size       =  0 ;
-  fp->next_write = -1 ;
-  fp->cur_pos    = -1 ;
+  fp->next_write  = -1 ;
+  fp->current_pos = -1 ;
   fp->rec_class   =  RT_DATA_CLASS ;
   fp->class_mask  =  0xFFFFFFFFu ;
 //   fp->dir_read  =  0 ;
@@ -524,7 +525,7 @@ static inline uint64_t RSF_Record_size(uint32_t rec_meta, size_t data_size){
   return record_size ;
 }
 
-static inline char* rt_to_str(const int record_type) {
+static inline const char* rt_to_str(const int record_type) {
   switch (record_type) {
     case RT_NULL:   return "RT_NULL";
     case RT_DATA:   return "RT_DATA";
@@ -539,4 +540,16 @@ static inline char* rt_to_str(const int record_type) {
   }
 }
 
+static inline const char* open_mode_to_str(const int mode) {
+  switch (mode) {
+    case RSF_RO:   return "RSF_RO";
+    case RSF_RW:   return "RSF_RW";
+    case RSF_AP:   return "RSF_AP";
+    case RSF_FUSE: return "RSF_FUSE";
+    case 0:        return "<none>";
+    default:       return "<weird mix>";
+  }
+}
+
+static int RSF_Ensure_new_segment(RSF_File *fp);
 void print_start_of_segment(start_of_segment* sos);
