@@ -23,12 +23,15 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/public_include)
 
 # Where to put modules
-get_target_property(LIBRARY_DIR ${PROJECT_NAME} BINARY_DIR)
-set(MODULE_DIR ${LIBRARY_DIR}/include/dummy)
+set(MODULE_DIR ${CMAKE_CURRENT_BINARY_DIR}/include)
 set_target_properties(${PROJECT_NAME} PROPERTIES Fortran_MODULE_DIRECTORY ${MODULE_DIR})
-target_include_directories(${PROJECT_NAME} INTERFACE ${MODULE_DIR})
+target_include_directories(${PROJECT_NAME} INTERFACE $<BUILD_INTERFACE:${MODULE_DIR}>)
 
-install(TARGETS ${PROJECT_NAME})
+install(
+   TARGETS ${PROJECT_NAME}
+   EXPORT ${PROJECT_NAME}-targets
+)
+
 install(FILES 
    ${MODULE_DIR}/rsf_mod.mod
    DESTINATION include
