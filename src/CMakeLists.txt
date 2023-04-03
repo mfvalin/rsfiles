@@ -20,7 +20,7 @@ add_library(${PROJECT_NAME} ${PROJECT_F_FILES} ${PROJECT_C_FILES} ${PROJECT_HEAD
    
 set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/public_include)
+target_include_directories(${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/public_include>)
 
 # Where to put modules
 set(MODULE_DIR ${CMAKE_CURRENT_BINARY_DIR}/include)
