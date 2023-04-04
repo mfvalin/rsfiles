@@ -240,18 +240,18 @@ interface
 #endif
 
 #if defined(IN_FORTRAN_CODE)
-  function RSF_Open_file(fname, mode, meta_dim, appl, segsize) result(handle) bind(C,name='RSF_Open_file')
+  function RSF_Open_file(fname, mode, dir_meta_length, appl, segsize) result(handle) bind(C,name='RSF_Open_file')
     import :: RSF_handle, C_CHAR, C_INT32_T, C_INT64_T
     implicit none
     character(C_CHAR), intent(IN), dimension(*) :: fname
     integer(C_INT32_T), intent(IN), value :: mode
-    integer(C_INT32_T), intent(INOUT) :: meta_dim
+    integer(C_INT32_T), intent(IN), value :: dir_meta_length
     character(C_CHAR), intent(IN), dimension(4) :: appl
     integer(C_INT64_T), intent(IN) :: segsize
     type(RSF_handle) :: handle
   end function RSF_Open_file
 #else
-  RSF_handle RSF_Open_file(char *fname, int32_t mode, int32_t *meta_dim, char *appl, int64_t *segsize);
+  RSF_handle RSF_Open_file(const char *fname, const int32_t mode, const int32_t dir_meta_length, const char *appl, int64_t *segsize);
 #endif
 
 #if defined(IN_FORTRAN_CODE)

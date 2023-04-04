@@ -2065,11 +2065,6 @@ static int RSF_Ensure_new_segment(
     nc = read(fp->fd, &fp->sos0, sizeof(start_of_segment)) ;
   }
 
-  // RSF_Read_directory(fp) ;
-  // fprintf(stderr, "RSF_New_empty_segment DEBUG : reading directory of existing file\n") ;
-
-  fp->isnew = 0 ; // TODO Remove this flag completely 
-
   // Read last end-of-segment and get start location of new segment
   off_t new_segment_start = lseek(fp->fd, -sizeof(end_of_segment), SEEK_END) ;
   nc = read(fp->fd, &last_eos, sizeof(end_of_segment)) ;
@@ -2083,7 +2078,8 @@ static int RSF_Ensure_new_segment(
 
   // Initialize new SOS as a copy of the first SOS
   memcpy(&new_sos, &fp->sos0, sizeof(start_of_segment)) ;
-  // system("ls -l demo0.rsf") ;
+  new_sos.head.rlm  = fp->rec_meta;
+  new_sos.head.rlmd = fp->dir_meta;
 
   if (fp->seg_max_hint > 0) {
     // We have a sparse segment
@@ -2123,7 +2119,7 @@ static int RSF_Ensure_new_segment(
   RSF_64_to_32(new_sos.seg, 0L) ;                                   // seg = 0 when a segment is open
 
   // Copy new SOS into RSF_File and write it to disk at end of file
-  memcpy(&(fp->sos1), &new_sos, sizeof(start_of_segment)) ;
+  // memcpy(&(fp->sos1), &new_sos, sizeof(start_of_segment)) ;
   lseek(fp->fd, new_segment_start, SEEK_SET) ;
   nc = write(fp->fd, &new_sos, sizeof(start_of_segment)) ;
 
@@ -2161,14 +2157,13 @@ RETURN :
 //! \return Handle (pointer to file control structure) if successful, NULL if error
 RSF_handle RSF_Open_file(
     //!> [in] Path to the file (will be stored internally as a canonical path)
-    char    *fname,
+    const char    *fname,
     //!> [in] RO/RW/AP/... If 0, will be RW if file is writable/creatable, RO otherwise
-    int32_t mode,
-    //!> [in,out] meta_dim from the file: directory metadata size in upper 16 bits, record metadata size in
-    //!> lower 16 bits. If the file is being created, this is instead used as input.
-    int32_t *meta_dim,
+    const int32_t mode,
+    //!> [in] Directory metadata size in 32-bit units
+    const int32_t dir_meta_length,
     //!> [in] 4-character application identifier. Chosen by the calling application.
-    char    *appl,
+    const char    *appl,
     //!> [in,out] [Optional]
     //!> As output: Segment size from file
     //!> If NULL or *segsizep == 0: ignored
@@ -2179,10 +2174,6 @@ RSF_handle RSF_Open_file(
 ) {
   RSF_File *fp = (RSF_File *) malloc(sizeof(RSF_File)) ;   // allocate a new RSF_File structure
   RSF_handle handle ;
-  //   off_t offset_eof, offset_last ;
-  //   int64_t size_last, size_last2, dir_last, dir_last2, ssize_last, ssize_last2 ;
-  //   end_of_segment eos ;
-  //   int i ;
   char *errmsg = "" ;
 
   if(fp == NULL) {
@@ -2199,14 +2190,15 @@ RSF_handle RSF_Open_file(
   fp->name = realpath(fname, NULL) ;     // get canonical path
 
   for (int i = 0; i < 4; i++) fp->appl_code[i] = appl[i];
-  fp->rec_meta = REC_ML(*meta_dim);
-  fp->dir_meta = DIR_ML(*meta_dim);
+  fp->dir_meta = DIR_ML(dir_meta_length);
+  fp->rec_meta = REC_ML(dir_meta_length);
   fp->seg_max_hint = segsize ;
 
-  if(mode == 0) mode = RSF_RW ;          // automatic mode, try to open for read+write with RO fallback
+  fp->mode = mode;
+  if(fp->mode == 0) fp->mode = RSF_RW ;  // automatic mode, try to open for read+write with RO fallback
 
   // Open file and determine actual mode, based on whether we were able to open the file in the requested mode.
-  switch(mode & (RSF_RO | RSF_RW | RSF_AP)){
+  switch(fp->mode & (RSF_RO | RSF_RW | RSF_AP)){
 
     case RSF_RO:                         // open for read only
       errmsg = " file not found" ;
@@ -2216,19 +2208,19 @@ RSF_handle RSF_Open_file(
     case RSF_RW:                         // open for read+write, create if it does not exist
       fp->fd = open(fname, O_RDWR | O_CREAT, 0777) ;
       if(fp->fd == -1){                  // fallback, try to open in read only mode
-        mode = RSF_RO ;
+        fp->mode = RSF_RO ;
         errmsg = " file does not exist or is not readable" ;
         if( (fp->fd = open(fname, O_RDONLY)) == -1 ) goto ERROR ;  // file does not exist or is not readable
       }
       // Try to lock the file for writing. If that doesn't work, set it to read-only.
       // This creates the first segment if it didn't already exist
       if (RSF_Lock_for_write(fp) < 0) {
-        mode = RSF_RO ;
+        fp->mode = RSF_RO ;
       }
       break ;
 
     case RSF_AP:                         // to be added later
-      mode = RSF_RW ;                    // open existing file for read+write, no fallback
+      fp->mode = RSF_RW ;                    // open existing file for read+write, no fallback
       errmsg = " cannot open in write mode" ;
       if( (fp->fd = open(fname, O_RDWR, 0777)) == -1) goto ERROR ;  // cannot open in write mode
       break ;
@@ -2241,9 +2233,6 @@ RSF_handle RSF_Open_file(
   errmsg = "" ;
 
   RSF_Vdir_setup(fp) ;
-  // fprintf(stderr,"RSF_Open_file: 2, fd = %d\n", fp->fd);
-  fp->mode = mode ;
-  fp->seg_base = 0 ;                     // a priori first segment of the file
 
   // Verify that there is something to read in the file
   lseek(fp->fd, fp->seg_base, SEEK_SET) ;               // first segment of the file
@@ -2255,9 +2244,8 @@ RSF_handle RSF_Open_file(
   fprintf(stderr, "RSF_Open_file, SOS:\n");
   print_start_of_segment(&fp->sos0);
 
-  *meta_dim = fp->sos0.head.rlmd ;
-  fp->rec_meta = fp->sos0.head.rlm ;
   fp->dir_meta = fp->sos0.head.rlmd ;
+  fp->rec_meta = fp->dir_meta ;
 
   if( RSF_Rl_sor(fp->sos0.head, RT_SOS) == 0 ) goto ERROR ;      // invalid SOS (wrong record type)
   if( RSF_Rl_eor(fp->sos0.tail, RT_SOS) == 0 ) goto ERROR ;      // invalid SOS (wrong record type)
@@ -2271,14 +2259,9 @@ RSF_handle RSF_Open_file(
     goto ERROR ;
   }
 
-  // fp->next_write = -1 ;
-  // fp->current_pos = -1 ;
   fp->last_op = OP_NONE ;
   fp->seg_max = 0 ;
   if (segsizep) *segsizep = segsize ;
-
-  // TODO remove this flag completely?
-  fp->isnew = 0 ;                    // not a new file
 
   // fprintf(stderr,"RSF_Open_file: 4, fp = %p\n", fp);
   // fprintf(stderr,"after open %ld, next write = %ld\n", lseek(fp->fd, 0L , SEEK_CUR), fp->next_write);
@@ -2318,7 +2301,6 @@ int32_t RSF_Close_compact_segment(RSF_handle h){
       lseek(fp->fd, fp->seg_base , SEEK_SET) ;                  // seek to start of this segment
       nc = write(fp->fd, &sos, sizeof(start_of_segment)) ;      // nullify original start_of_segment
       fp->seg_base = 0 ;                                        // segment 0 will become the only segment in file
-      fp->isnew = 1 ;                                           // saved sos0 will not be used
       fp->dir_read = 0 ;                                        // all directory entries will be written
       fprintf(stderr,"RSF_Close_compact_segment DEBUG : fusing all segments into one\n") ;
     }
@@ -2517,6 +2499,7 @@ int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size){
 //!     the EOS at end of file becomes the only good one
 //!     all other EOS/SOS records in file (if any) will be ignored
 //!     all DIR records except the last one will be ignored
+//! \return 1 on success, 0 if fails.
 int32_t RSF_Close_file(RSF_handle h){
   RSF_File *fp = (RSF_File *) h.p ;
   int32_t slot ;
@@ -2545,7 +2528,6 @@ int32_t RSF_Close_file(RSF_handle h){
     nc = write(fp->fd, &sos, sizeof(start_of_segment)) ;      // nullify original start_of_segment
     // fp->current_pos = lseek(fp->fd, fp->next_write , SEEK_SET) ;  // reset position of write pointer
     fp->seg_base = 0 ;                                        // segment 0 will become the only segment in file
-    fp->isnew = 1 ;                                           // saved sos0 will not be used
     fp->dir_read = 0 ;                                        // all directory entries will be written
     fprintf(stderr,"RSF_Close_file DEBUG : fusing segments into one\n") ;
   }
@@ -2761,6 +2743,7 @@ void RSF_Dump(char *name, int verbose){
     }else{
       snprintf(buffer,sizeof(buffer),"%s %5d [%12.12lx], %6ld(%6ld),",tab[sor.rt+tabplus],  rec_index, rec_offset, reclen, datalen) ;
     }
+
     int num_meta = -1;
     switch(sor.rt){
       case RT_VDIR :
@@ -2940,8 +2923,8 @@ int32_t RSF_File_slot(RSF_handle h) {
 }
 
 void print_start_of_record(start_of_record* sor) {
-  fprintf(stderr, "type %s, dir meta length %d, rec meta length %d, zr %x, length %d, dir meta length %d, unused bits %d, elem length %d\n",
-          rt_to_str(sor->rt), DIR_ML(sor->rlm), REC_ML(sor->rlm), sor->zr, RSF_32_to_64(sor->rl), sor->rlmd, sor->ubc, sor->dul);
+  fprintf(stderr, "type %s, rec meta length %d, zr %x, length %d, dir meta length %d, unused bits %d, elem length %d\n",
+          rt_to_str(sor->rt), sor->rlm, sor->zr, RSF_32_to_64(sor->rl), sor->rlmd, sor->ubc, sor->dul);
 }
 
 void print_start_of_segment(start_of_segment* sos) {

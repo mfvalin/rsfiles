@@ -75,7 +75,7 @@ int the_test(int argc, char **argv){
   if(verbose >= 0) {
     RSF_Dump(argv[1], verbose) ;
   }else{
-    h1 = RSF_Open_file(argv[1], RSF_RO, &meta_dim, "demo", NULL);  // open file
+    h1 = RSF_Open_file(argv[1], RSF_RO, meta_dim, "demo", NULL);  // open file
     fprintf(stderr,"file '%s', meta_dim = %d\n",argv[1],meta_dim) ;
     for(i = 0 ; i < 5 ; i++) {
       key = i + 1 ;

@@ -410,7 +410,7 @@ struct RSF_File {
   uint64_t seg_base ;            //!< base address in file of the current active segment (0 if only one segment)
   uint64_t file_wa0 ;            //!< file address origin (normally 0) (used for file within file access)
   start_of_segment sos0 ;        //!< start of segment of first segment (as it was read from file)
-  start_of_segment sos1 ;        //!< start of segment of active (new) (compact or sparse) segment
+  // start_of_segment sos1 ;        //!< start of segment of active (new) (compact or sparse) segment
   end_of_segment eos1 ;          //!< end of segment of active (compact or sparse) segment
   uint64_t seg_max ;             //!< Maximum address allowable in segment (ssegl if sparse file). 0 for compact segment (or no limit?)
   uint64_t seg_max_hint ;        //!< Desired maximum address allowable in segment (sparse only)
