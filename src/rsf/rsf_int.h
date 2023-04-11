@@ -551,5 +551,6 @@ static inline const char* open_mode_to_str(const int mode) {
   }
 }
 
-static int RSF_Ensure_new_segment(RSF_File *fp);
+static int32_t RSF_File_lock(RSF_File *fp, int lock);
+static int32_t RSF_Ensure_new_segment(RSF_File *fp);
 void print_start_of_segment(start_of_segment* sos);

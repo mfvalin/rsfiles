@@ -1908,6 +1908,12 @@ uint32_t RSF_Get_num_records(RSF_handle h) {
   return fp->vdir_used ;
 }
 
+uint32_t RSF_Get_num_records_at_open(RSF_handle h) {
+  RSF_File *fp = (RSF_File *) h.p ;
+  if (! RSF_Valid_file(fp) ) return UINT_MAX;
+  return fp->dir_read ;
+}
+
 int32_t RSF_Get_mode(RSF_handle h) {
   RSF_File *fp = (RSF_File *) h.p ;
   return (int32_t)fp->mode;
@@ -2030,7 +2036,7 @@ RETURN:
 }
 
 //! Create an empty RSF segment : start of segment, empty directory, end of segment
-static int RSF_Ensure_new_segment(
+static int32_t RSF_Ensure_new_segment(
     RSF_File *fp    //!< [in,out] Pointer to file where the segment is being added
 ) {
   ssize_t nc ;

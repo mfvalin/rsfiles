@@ -299,10 +299,16 @@ interface
     type(RSF_handle), intent(IN), value :: handle
     integer(C_INT32_T) :: num_records
   end function RSF_Get_num_records
+  function RSF_Get_num_records_at_open(handle) result(num_records) bind(C, name = 'RSF_Get_num_records_at_open')
+    import :: RSF_handle, C_INT32_T
+    type(RSF_handle), intent(IN), value :: handle
+    integer(C_INT32_T) :: num_records
+  end function RSF_Get_num_records_at_open
 #else
   RSF_record_info RSF_Get_record_info(RSF_handle h, int64_t key) ;
   RSF_record *RSF_Get_record(RSF_handle h, int64_t key) ;
   uint32_t RSF_Get_num_records(RSF_handle) ;
+  uint32_t RSF_Get_num_records_at_open(RSF_handle h) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
