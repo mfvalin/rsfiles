@@ -426,34 +426,36 @@ static int64_t RSF_Scan_vdir(
     //!> [in,out] Record length if found (untouched if no match)
     uint64_t *rl
 ) {
-  int64_t slot, key ;
+  int64_t key ;
   int index, dir_meta ;
   vdir_entry *ventry ;
   uint32_t *meta ;
   uint32_t rt0, class0, class_meta ;
   RSF_Match_fn *scan_match = NULL ;
-//   uint32_t mask0 = 0xFFFFFFFF ;   // default mask0 is all bits active
+  // uint32_t mask0 = 0xFFFFFFFF ;   // default mask0 is all bits active
   uint32_t mask0 = (~0) ;   // default mask0 is all bits active
   char *error ;
-//   int64_t badkey = ERR_NOT_FOUND ;
+  // int64_t badkey = ERR_NOT_FOUND ;
   int64_t badkey = -1 ;
   int reject_a_priori ;
 
-  if( ! (slot = RSF_Valid_file(fp)) ){
+  const int64_t slot = RSF_Valid_file(fp);
+  if (!slot) {
+    // something wrong with fp
     error = "invalid file reference" ;
-//  using appropriate error code borrowed from XDF for consistency purposes
-//     badkey = ERR_NO_FILE ;
-    goto ERROR ;      // something wrong with fp
+    badkey = ERR_NO_FILE ;
+    goto ERROR ;
   }
+
   if( (key0 != 0) && ((key0 >> 32) != slot) ) {
+    // slot in key different from file table slot
     error = "inconsistent file slot" ;
-//  using appropriate error code borrowed from XDF for consistency purposes
-//     badkey = ERR_BAD_UNIT ;
-    goto ERROR ;      // slot in key different from file table slot
+    badkey = ERR_BAD_UNIT ;
+    goto ERROR ;
   }
+
   // slot is origin 1 (zero is invalid)
-  slot <<= 32 ;                             // move to upper 32 bits
-  key = slot ;
+  key = (slot << 32) ;                      // move to upper 32 bits
   if( key0 < -1 ) key0 = 0 ;                // first record position for this file
   index = key0 & 0x7FFFFFFF ;               // starting ordinal for search (one more than what key0 points to)
   if(index >= fp->vdir_used) {
@@ -1709,7 +1711,21 @@ int64_t RSF_Lookup(
     uint32_t lcrit      //!< How many criteria there are (same as number of masks)
 ) {
   RSF_File *fp = (RSF_File *) h.p ;
-  uint64_t wa, rl ;
+
+  if (criteria != NULL && mask != NULL) {
+    fp->search_start_key = key0;
+    fp->num_search_criteria = lcrit;
+
+    if (fp->search_criteria != NULL) free(fp->search_criteria);
+    if (fp->search_mask != NULL) free(fp->search_mask);
+    fp->search_criteria = (uint32_t *)malloc(lcrit * sizeof(uint32_t));
+    fp->search_mask = (uint32_t *)malloc(lcrit * sizeof(uint32_t));
+    for (int i = 0; i < lcrit; i++) {
+      fp->search_criteria[i] = criteria[i];
+      fp->search_mask[i] = mask[i];
+    }
+  }
+
   // fprintf(stderr,"in RSF_Lookup key = %16.16lx, crit = %8.8x @%p, mask = %8.8x @%p\n", key0, criteria[0], criteria, mask[0], mask) ;
   // fprintf(stderr, "          ");
   // for(int i=0 ; i<lcrit ; i++)
@@ -1718,7 +1734,10 @@ int64_t RSF_Lookup(
   // for(int i=0 ; i<lcrit ; i++)
   //   fprintf(stderr,"%8.8x ", mask[i]) ;
   // fprintf(stderr,"\n") ;
-  return RSF_Scan_vdir(fp, key0, criteria, mask, lcrit, &wa, &rl) ;  // wa and rl not sent back to caller
+  uint64_t wa, rl ;  // wa and rl not sent back to caller
+  const int64_t record_key =  RSF_Scan_vdir(fp, fp->search_start_key, fp->search_criteria, fp->search_mask, fp->num_search_criteria, &wa, &rl) ;
+  fp->search_start_key = record_key;
+  return record_key;
 }
 
 static RSF_record_info info0 = { 0, 0, 0, 0, 0, 0, 0, 0 } ;
@@ -2643,6 +2662,8 @@ CLOSE :
   RSF_Purge_file_slot(fp) ;                        // remove from file table
   // free memory associated with file
   free(fp->name) ;                                 // free file name buffer
+  if (fp->search_criteria != NULL) free(fp->search_criteria) ;
+  if (fp->search_mask != NULL) free(fp->search_mask) ;
   //  free dirblocks and vdir
   while(fp->dirblocks != NULL){
     purge = fp->dirblocks->next ;    // remember next block address
