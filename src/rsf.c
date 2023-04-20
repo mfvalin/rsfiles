@@ -1700,6 +1700,13 @@ ERROR:
   return index ;
 }
 
+//! Get a direct pointer to the latest mask used during a search (and potentially the next one)
+uint32_t *RSF_Get_search_mask(RSF_handle h)
+{
+  RSF_File *fp = (RSF_File *) h.p;
+  return fp->search_mask;
+}
+
 //! Get key to record from file fp, matching criteria & mask
 //! \return Key to the first record found that matches the criteria/mask
 //! \sa RSF_Scan_vdir
@@ -1712,14 +1719,19 @@ int64_t RSF_Lookup(
 ) {
   RSF_File *fp = (RSF_File *) h.p ;
 
+  // Update current search criteria and mask
   if (criteria != NULL && mask != NULL) {
+    if (fp->search_criteria != NULL && lcrit > fp->num_search_criteria) {
+      free(fp->search_criteria);
+      free(fp->search_mask);
+    }
+    if (fp->search_criteria == NULL) {
+      fp->search_criteria = (uint32_t *)malloc(lcrit * sizeof(uint32_t));
+      fp->search_mask = (uint32_t *)malloc(lcrit * sizeof(uint32_t));
+    }
+
     fp->search_start_key = key0;
     fp->num_search_criteria = lcrit;
-
-    if (fp->search_criteria != NULL) free(fp->search_criteria);
-    if (fp->search_mask != NULL) free(fp->search_mask);
-    fp->search_criteria = (uint32_t *)malloc(lcrit * sizeof(uint32_t));
-    fp->search_mask = (uint32_t *)malloc(lcrit * sizeof(uint32_t));
     for (int i = 0; i < lcrit; i++) {
       fp->search_criteria[i] = criteria[i];
       fp->search_mask[i] = mask[i];
