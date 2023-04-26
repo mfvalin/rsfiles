@@ -1727,36 +1727,36 @@ int64_t RSF_Lookup(
 
 static RSF_record_info info0 = { 0, 0, 0, 0, 0, 0, 0, 0 } ;
 
-//! Get information about a record
+//! Get information about a record at a specific index within the given file
 //! \return a RSF_record_info structure
-RSF_record_info RSF_Get_record_info(
-    RSF_handle h, //!< Pointer to a RSF file
-    int64_t key   //!< Record identifier
+RSF_record_info RSF_Get_record_info_by_index(
+    RSF_handle h,         //!< Pointer to a RSF file
+    const uint32_t index  //!< Record index
 ) {
-  RSF_record_info info ;
   RSF_File *fp = (RSF_File *) h.p ;
-  char *errmsg = "" ;
-  int32_t slot, fslot ;
-  char *temp, *temp0 ;
 
-  errmsg = "invalid fp" ;
-  if( (fslot = RSF_Valid_file(fp)) == 0 ) goto ERROR ;  // something wrong with fp
+  const int32_t fslot = RSF_Valid_file(fp);
+  if (fslot == 0) {
+    fprintf(stderr, "RSF_Get_record_info ERROR: invalid file pointer\n");
+    return info0;
+  }
 
-  slot = key >> 32 ;
-  errmsg = "inconsistent file slot" ;
-  if(slot != fslot) goto ERROR ;
+  if (index >= fp->vdir_used) {
+    fprintf(stderr, "RSF_Get_record_info ERROR: that record index does not exist (%d), "
+                    "there are only %d available records\n",
+            index, fp->vdir_used);
+    return info0;
+  }
 
-  // get information from vdir, using key
-  key &= 0xFFFFFFFFul ;                               // lower 32 bits
-  key = key - 1 ;                                     // origin 0
-  info.wa = RSF_32_to_64( fp->vdir[key]->wa ) ;       // record address in file
-  info.rl = RSF_32_to_64( fp->vdir[key]->rl ) ;       // record size
-  info.elem_size = fp->vdir[key]->dul ;
+  RSF_record_info info ;
+  info.wa = RSF_32_to_64( fp->vdir[index]->wa ) ;     // record address in file
+  info.rl = RSF_32_to_64( fp->vdir[index]->rl ) ;     // record size
+  info.elem_size = fp->vdir[index]->dul ;
   info.wa_meta = info.wa + sizeof(start_of_record) ;  // metadata address in file
-  info.rec_meta = REC_ML(fp->vdir[key]->ml) ;         // record metadata length
-  info.dir_meta = DIR_ML(fp->vdir[key]->ml) ;         // directory metadata length
+  info.rec_meta = REC_ML(fp->vdir[index]->ml) ;       // record metadata length
+  info.dir_meta = DIR_ML(fp->vdir[index]->ml) ;       // directory metadata length
   info.dir_meta0 = info.dir_meta ;
-  info.meta = fp->vdir[key]->meta ;
+  info.meta = fp->vdir[index]->meta ;
   info.wa_data = info.wa_meta +                       // data address in file
                  info.rec_meta * sizeof(int32_t) ;
   info.data_size = info.rl -                          // length of data payload
@@ -1766,8 +1766,8 @@ RSF_record_info RSF_Get_record_info(
   info.fname = NULL ;                                 // if not a file container
   info.file_size = 0 ;                                // if not a file container
   if((info.meta[0] & 0xFF) == RT_FILE){                      // file container detected
-    temp0 = (char *) info.meta ;
-    temp = (char *) &info.meta[info.dir_meta] ;             // end of metadata
+    char *temp0 = (char *) info.meta ;
+    char *temp = (char *) &info.meta[info.dir_meta] ;             // end of metadata
     while((temp[ 0] == '\0') && (temp > temp0)) temp-- ;    // skip trailing nulls
     while((temp[-1] != '\0') && (temp > temp0)) temp-- ;    // back until null is found
     info.fname = temp ;                                     // file name from directory metadata
@@ -1778,10 +1778,26 @@ RSF_record_info RSF_Get_record_info(
 //     fprintf(stderr,"RSF_Get_record_info DEBUG: file container %s detected\n", temp);
   }
   return info ;
+}
 
-ERROR:
-  fprintf(stderr,"RSF_Get_record_info ERROR, %s\n",errmsg);
-  return info0 ;
+//! Get information about a record
+//! \return a RSF_record_info structure
+RSF_record_info RSF_Get_record_info(
+    RSF_handle h, //!< Pointer to a RSF file
+    const int64_t key   //!< Record identifier
+) {
+  RSF_File *fp = (RSF_File *) h.p ;
+
+  const int32_t fslot = RSF_Valid_file(fp);
+  const int32_t slot  = key >> 32 ;
+  if (slot != fslot) {
+    fprintf(stderr,"RSF_Get_record_info ERROR: inconsistent file slot\n");
+    return info0;
+  }
+
+  // Get information from vdir using index from key (Lower 32 bits of key, starting from 0)
+  const uint32_t index = (key & 0xFFFFFFFFul) - 1;
+  return RSF_Get_record_info_by_index(h, index);
 }
 
 // USER CALLABLE FUNCTION

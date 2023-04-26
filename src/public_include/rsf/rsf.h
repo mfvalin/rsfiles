@@ -287,6 +287,13 @@ interface
     integer(C_INT64_T), intent(IN), value :: key
     type(RSF_record_handle) :: rh
   end function RSF_Get_record
+  function RSF_Get_record_info_by_index(fh, index) result(info) BIND(C, name='RSF_Get_record_info')
+    import :: RSF_handle, C_INT32_T, RSF_record_info_c
+    implicit none
+    type(RSF_handle), intent(IN), value :: fh
+    integer(C_INT32_T), intent(IN), value :: index
+    type(RSF_record_info_c) :: info
+  end function RSF_Get_record_info_by_index
   function RSF_Get_record_info(fh, key) result(info) BIND(C, name='RSF_Get_record_info')
     import :: RSF_handle, C_INT64_T, RSF_record_info_c
     implicit none
@@ -305,6 +312,7 @@ interface
     integer(C_INT32_T) :: num_records
   end function RSF_Get_num_records_at_open
 #else
+  RSF_record_info RSF_Get_record_info_by_index(RSF_handle h, uint32_t key) ;
   RSF_record_info RSF_Get_record_info(RSF_handle h, int64_t key) ;
   RSF_record *RSF_Get_record(RSF_handle h, int64_t key) ;
   uint32_t RSF_Get_num_records(RSF_handle) ;
