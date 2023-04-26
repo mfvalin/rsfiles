@@ -209,7 +209,7 @@ RSF_handle RSF_Key32_to_handle(int32_t key32) {
   RSF_handle h;
   const int64_t  key64 = RSF_Key64(key32);
   const uint32_t slot  = key64_to_file_slot(key64);
-  h.p = rsf_files[slot];
+  h.p = rsf_files[slot - 1];
   return h;
 }
 
@@ -2263,7 +2263,7 @@ RSF_handle RSF_Open_file(
   if( check_application_code(fp, &fp->sos0) < 0 ) goto ERROR ;
 
   fp->slot = RSF_Set_file_slot(fp) ;        // insert into file table
-  fprintf(stderr,"RSF_Open_file DEBUG : %s mode , reading directory\n", open_mode_to_str(fp->mode));
+  fprintf(stderr,"RSF_Open_file DEBUG : %s mode, slot %d, reading directory\n", open_mode_to_str(fp->mode), fp->slot);
   if( RSF_Read_directory(fp) < 0 ){         // read directory from all segments
     RSF_Purge_file_slot(fp) ;               // remove from file table in case of error
     goto ERROR ;
