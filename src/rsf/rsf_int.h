@@ -434,11 +434,6 @@ struct RSF_File {
   uint8_t isnew ;                //!< new segment indicator
   uint8_t last_op ;              //!< last operation (1 = read) (2 = write) (0 = unknown/invalid)
   uint8_t exclusive ;            //!< RW in exclusive mode if 1
-
-  uint32_t *search_criteria ;     //!< Pointer to the last set of criteria used for searching for a record
-  uint32_t *search_mask ;         //!< Pointer to the last set of masks used for searching for a record
-  uint32_t num_search_criteria ;  //!< Number of criteria used in the last search for records
-  int64_t  search_start_key ;     //!< Key where the next search for a record should start, if using the same criteria
 } ;
 
 // NOTE : explicit_bzero not available everywhere

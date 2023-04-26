@@ -541,7 +541,6 @@ uint32_t RSF_Key64_to_file_slot(int64_t key64) ;
 int32_t RSF_Key32_type(int32_t key32) ;
 int32_t RSF_File_slot(RSF_handle h) ;
 RSF_handle RSF_Key32_to_handle(int32_t key32) ;
-uint32_t *RSF_Get_search_mask(RSF_handle h) ;
 #endif
 
 #if defined(IN_FORTRAN_CODE)
