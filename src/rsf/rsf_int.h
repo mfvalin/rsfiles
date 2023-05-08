@@ -15,7 +15,9 @@
  *     M. Valin,   Recherche en Prevision Numerique, 2021
  */
 
-#include <rsf/rsf.h>
+#include "rmn/rsf.h"
+
+#include "fstd98/qstdir.h"
 
 int32_t RSF_Switch_sparse_segment(RSF_handle h, int64_t min_size) ;
 

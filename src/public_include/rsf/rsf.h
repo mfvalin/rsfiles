@@ -43,8 +43,6 @@ DT_08 ... DT_64  : length of data elements in record (for endianness management)
 
 /* the following defines are used in both Fortran and C */
 
-#include <rsf/xdf_rsf_error_codes.h>
-
 #if ! defined(RSF_VERSION)
 
 #define RSF_VERSION_STRING "1.0.0"
