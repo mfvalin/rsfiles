@@ -52,7 +52,7 @@ int the_test(int argc, char **argv){
 
 #if defined(RSF_DUMP)
 
-#include <rsf/rsf.h>
+#include <rmn/rsf.h>
 void usage(char **argv){
   fprintf(stderr,"usage : %s rsf_file [verbose]\n",argv[0]);
 }
